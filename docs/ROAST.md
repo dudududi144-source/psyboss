@@ -132,25 +132,31 @@ a real sampler flagship and a real device bus.
 
 ---
 
-## 7. PSYBOSS vs the world
+## 7. PSYBOSS vs the world (Scope 1 → 2)
 
-| capability | Octatrack MkII | Ableton Session View | Digitakt 2 | **PSYBOSS** |
+| capability | Octatrack MkII | Ableton Session View | Digitakt 2 | **PSYBOSS (Scope 2)** |
 |---|---|---|---|---|
 | Runs in browser | ❌ | ❌ | ❌ | ✅ |
 | Zero install | ❌ | ❌ | ❌ | ✅ |
-| Scene matrix (tracks × scenes) | ✅ | ✅ | ⚠️ rows | ✅ |
-| Per-step parameter locks | ✅ | ⚠️ (clip automation) | ✅ | ✅ (Scope 2) |
-| Conditional trigs | ✅ | ❌ | ✅ | ✅ (Scope 2) |
-| Real AudioWorklet DSP | n/a (HW) | n/a | n/a | ✅ |
-| Sample-accurate transport PLL | ✅ (HW) | ✅ | ✅ | ✅ |
-| Provenance-enforced samples | ❌ | ❌ | ❌ | ✅ |
-| MIDI clock in/out (24-ppq) | ✅ | ✅ | ✅ | ✅ (Scope 2) |
-| WebRTC P2P sync | ❌ | ⚠️ (Link) | ❌ | ✅ (Scope 3) |
-| Collaborative live perf | ❌ | ⚠️ | ❌ | ✅ (Scope 3) |
-| Deterministic replay identity | ❌ | ❌ | ❌ | ✅ |
-| Hosts sibling devices | ❌ | ✅ (tracks) | ❌ | ✅ (PSYBUS) |
+| Scene matrix (tracks × scenes) | ✅ | ✅ | ⚠️ rows | ✅ (4×4) |
+| Per-step parameter locks | ✅ | ⚠️ (clip automation) | ✅ | ⏳ Scope 2 |
+| Conditional trigs | ✅ | ❌ | ✅ | ⏳ Scope 2 |
+| AudioWorklet clock (no setInterval) | n/a (HW) | n/a | n/a | ✅ |
+| Sample loading through provenance gate | ❌ | ❌ | ❌ | ⏳ Scope 2 |
+| Provenance-enforced samples | ❌ | ❌ | ❌ | ✅ (gate wired) |
+| Deterministic replay identity (seeded) | ❌ | ❌ | ❌ | ✅ (mulberry32) |
+| Bidirectional device bus (PSYBUS) | ❌ | ⚠️ | ❌ | ✅ (tier 0) |
+| Real-time synthesis in worklet | ✅ (HW) | n/a | ✅ | ⚠️ pre-rendered (Scope 3 goal) |
+| MIDI clock in/out (24-ppq) | ✅ | ✅ | ✅ | ⏳ Scope 3 |
+| WebRTC P2P sync | ❌ | ⚠️ (Link) | ❌ | ⏳ Scope 3 |
+| Hosts sibling devices | ❌ | ✅ (tracks) | ❌ | ⏳ Scope 3 (PSYBUS ready) |
+| Test suite | n/a | n/a | n/a | ✅ 39 tests |
 | Price | $1,349 | $749+ | $999 | **free (MIT)** |
 
-**No world-leading sampler runs in a browser. No browser DAW is a hardware-style performance
-sampler. PSYBOSS is the only device that combines a scene matrix, parameter locks, real worklet
-DSP, provenance, P2P sync, and the ability to host sibling devices — in a browser, for free.**
+**Scope 1 claims audited (ROAST-1 self-roast, all fixed in Scope 2):**
+- ✅ "No setInterval in audio path" — TRUE (worklet clock; verified by grep).
+- ✅ "Provenance-gated PSYBUS" — was DEAD CODE in Scope 1; Scope 2 wires `requestTrig → bus.publish → engine.subscribe`, gate now runs on every trig. Verified by `tests/psyboss/psybus.test.ts`.
+- ⚠️ "Sample-accurate triggering" — Scope 1 was 7ms late (`currentTime+0.002`). Scope 2 schedules at the next bar boundary in audio-context time (`audioTime + secPerBar`). Tighter, but not sample-accurate until a Worker lookahead scheduler lands.
+- ✅ "Deterministic replay identity" — was BROKEN by `Math.random`+`Date.now` in Scope 1. Scope 2 threads a mulberry32 seed through all DSP. Verified by `tests/psyboss/dsp.test.ts` (byte-identical across runs).
+- ⚠️ "Real AudioWorklet DSP" — the worklet is a clock + meter, NOT a synthesizer. All sound is pre-rendered procedural DSP loaded into AudioBuffers at init. Real-time per-sample worklet synthesis is a Scope 3 goal (port `psy5/worklets/psy4-dsp.js`).
+- ✅ Tests — Scope 1 had ZERO (hypocrite, same tier as PSY6-ULTIMATE). Scope 2 ships 39 tests (DSP numerical, determinism, PSYBUS gate, clock math). Still far below `psystar`'s 953 — but no longer zero.

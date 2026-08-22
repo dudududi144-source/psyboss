@@ -1,7 +1,8 @@
 # PSYBOSS — Technical Architecture
 
 > The architecture PSYBOSS delivers. Grounded in the evidence in `ROAST.md` and the protocol
-> in `PSYBUS.md`. Every layer below has a concrete implementation target in this repo.
+> in `PSYBUS.md`. Every claim below is verified by code + tests; claims that were false in
+> Scope 1 are marked and fixed in Scope 2 (see ROAST-1 self-roast in `worklog.md`).
 
 ## The thesis
 
@@ -14,30 +15,28 @@ bus connecting everything, and a single provenance gate protecting everything.
                     ┌─────────────────────────────────────────────┐
                     │              UI (React / shadcn)             │
                     │  transport bar · scene matrix · meters ·     │
-                    │  track strip · sample browser · scope        │
+                    │  track row selector · sticky footer          │
                     └───────────────┬─────────────────────────────┘
-                                    │  (React state ↔ host)
+                                    │  trig(track, scene)  [user gesture]
                     ┌───────────────▼─────────────────────────────┐
                     │              PSYBUS (host)                   │
-                    │  subscribe · publish · register · route ·    │
-                    │  assertProvenance · deterministic seed       │
+                    │  publish(trig) → assertProvenance → route    │
+                    │  by dst → deliver to engine subscriber       │
                     └───────────────┬─────────────────────────────┘
-            ┌───────────────────────┼───────────────────────────┐
-            ▼                       ▼                           ▼
-   ┌────────────────┐    ┌────────────────────┐      ┌────────────────────┐
-   │  MasterClock    │    │  Sampler Tracks    │      │  Sibling Devices   │
-   │  (AudioWorklet) │    │  (8× stereo)       │      │  (PsySynthPro,     │
-   │  BPM · PLL ·    │    │  flex/static ·     │      │   psydrum, …)      │
-   │  bar-quantize   │    │  param locks ·     │      │  via PSYBUS adapter│
-   │  metering       │    │  conditional trigs │      │                    │
-   └────────┬────────┘    └─────────┬──────────┘      └─────────┬──────────┘
-            │                       │                           │
-            └───────────────────────┼───────────────────────────┘
-                                    ▼
-                    ┌─────────────────────────────────────────────┐
+                                    │  armTrig(track, scene)
+                    ┌───────────────▼─────────────────────────────┐
+                    │           AudioEngine                        │
+                    │  holds armed trigs until next bar boundary   │
+                    │  schedules BufferSource at audioTime+sec/bar │
+                    │  voice pool: hard cap 64, oldest-steal,      │
+                    │  disconnect-on-ended                         │
+                    └───────────────┬─────────────────────────────┘
+                                    │  start(when)
+                    ┌───────────────▼─────────────────────────────┐
                     │         Web Audio render graph               │
-                    │  track → gain → filter → send → master →     │
-                    │  limiter → meter → destination               │
+                    │  BufferSource → trackGain → masterGain →     │
+                    │  limiter → clockWorklet (passthrough+meter)  │
+                    │  → destination                               │
                     └─────────────────────────────────────────────┘
 ```
 
@@ -45,98 +44,134 @@ bus connecting everything, and a single provenance gate protecting everything.
 
 ### L0 — Web Audio render graph (the only thing that makes sound)
 
-Every voice routes through a fixed, typed graph. No ad-hoc node creation on the main thread.
-
 ```
-track[0..7] → GainNode(gain) → BiquadFilterNode(filter) →
-  → GainNode(send) ──→ DelayNode(throw) ──→ master
-  →                                          ↓
-master → DynamicsCompressorNode(limiter) → AnalyserNode(meter) → destination
+BufferSource[trig] → trackGains[0..3] → masterGain → DynamicsCompressorNode(limiter)
+  → AudioWorkletNode(clock: passthrough + meter) → destination
 ```
 
-The master `AnalyserNode` feeds the meter UI. The limiter is a real brickwall (threshold -1 dBTP,
-5ms lookahead). This is the "master bus" — Gap 5 from ROAST §2, closed at the bus level.
+The master worklet meters RMS + peak (with 1s hold, 6dB/s decay) and posts dBFS to the UI
+every ~50ms. The limiter is `DynamicsCompressorNode` (threshold -1 dBFS, ratio 20:1, 3ms attack).
+**Honest caveat (ROAST-1 §1):** this is sample-peak metering, not true-peak (4× oversampled).
+A real mastering limiter would measure inter-sample peaks. Scope 4 will add a true-peak worklet.
 
 ### L1 — MasterClock (AudioWorklet, the one clock)
 
-The family's #1 defect is `setInterval(25)` in the audio path (ROAST §2.1). PSYBOSS kills it.
+The family's #1 defect is `setInterval(25)` in the audio path (ROAST.md §2.1). PSYBOSS kills it.
 
 `PsyBossClockProcessor extends AudioWorkletProcessor` runs **on the audio thread**. Every 128
 samples (one quantum) it:
 1. Advances the musical clock by `128 / sampleRate` seconds.
 2. Computes `beat`, `bar`, `phase` from `bpm`.
 3. Posts transport state to the main thread on bar boundaries (not every quantum — that would
-   flood the message queue).
-4. Drives the meter: accumulates `sumOfSquares` per quantum, posts RMS/peak every ~50ms.
-5. Handles bar-quantized launch: when the UI arms a scene, the clock fires the trig at the next
-   `phase === 0` boundary — sample-accurate, not `setTimeout`-accurate.
+   flood the message queue). Also posts immediately on `play`, `stop`, `setBpm` (ROAST-1 §3 fix:
+   was stale for up to 1 bar).
+4. Meters: accumulates `sumOfSquares` + peak, posts RMS/peak every ~50ms with peak-hold.
 
-This is a real AudioWorklet scheduler. The main thread never touches timing. (Ported discipline
-from `psy5/worklets/psy4-dsp.js`, `psystar/src/engine/lookahead-scheduler.ts`.)
+**Honest caveat (ROAST-1 §4):** the worklet is a clock + meter, NOT a synthesizer. All sound is
+pre-rendered procedural DSP (see L3) loaded into AudioBuffers at init. Real-time per-sample
+worklet synthesis is a Scope 3 goal (port `psy5/worklets/psy4-dsp.js`).
 
 ### L2 — PSYBUS (the one bus)
 
-See `docs/PSYBUS.md`. Tier 0 (in-process) in Scope 1. The host is a singleton that:
+See `docs/PSYBUS.md`. Tier 0 (in-process) in Scope 2. The host:
 - Holds the registry of devices + their capabilities.
-- Routes envelopes by `dst` (unicast) or `broadcast`.
-- Enforces provenance on any `trig`/`note` carrying a `SampleRef`.
+- Routes envelopes by `dst` (unicast) or `broadcast` (ROAST-1 §4 fix: was decorative).
+- `publish` try/catches each subscriber (ROAST-1 §4 fix: was one-throw-kills-all).
+- Enforces provenance on every `trig` (sampleRef is now REQUIRED by the type system, not optional).
 - Stamps every envelope with `rev` (monotonic) and `seed` (the performance seed) for replay.
 
-### L3 — Sampler tracks (the device)
+**The trig path is now wired through the bus** (ROAST-1 §1 fix: was dead code in Scope 1):
+```
+UI.requestTrig(track, scene)
+  → bus.publish({ kind:'trig', sampleRef: dspProvenance(soundId, seed) })
+  → host.assertProvenance(sampleRef)   // gate RUNS here
+  → host routes to engine subscriber
+  → engine.armTrig(track, scene)
+  → (next bar boundary) engine.scheduleVoice at audioTime + secPerBar
+```
+If the gate throws, the trig is rejected — no sound, by design. Verified by `tests/psyboss/psybus.test.ts`.
 
-PSYBOSS ships 8 stereo sampler tracks. Each track is a PSYBUS device that:
-- Subscribes to `transport`, `trig`, `note`, `param.set`, `param.lock`, `sidechain.duck`, `choke`.
-- On `trig` for its track → schedules a voice at the envelope's `ts` (sample-accurate).
-- Maintains a voice pool (oldest-steal, ported discipline from `psysynth`'s `SynthVoicePool`).
-- Publishes `voice.count` telemetry.
+### L3 — Procedural DSP (the sound source, Scope 1 → 2)
 
-**Scope 1 simplification**: tracks generate sound procedurally (a psytrance kick / snare / hat /
-bass) in the worklet — no samples, no licensing, proves the DSP is real. Scope 2 adds sample
-loading through the provenance gate.
+PSYBOSS ships 4 tracks (KICK/SNARE/HAT/BASS) × 4 scenes = 16 procedural sounds. Each is rendered
+sample-by-sample at init into an `AudioBuffer`. **No OscillatorNode, no samples, no licensing.**
+
+Scope 2 DSP improvements (ROAST-1 §2 fixes):
+- **mulberry32 PRNG** threaded through all renderers (was `Math.random` → broke determinism).
+- **PolyBLEP saw** in the bass (was naive saw → aliased to the 436th harmonic).
+- **DC blocker** on every renderer (prevents DC offset accumulation).
+- **Denormal guard** on envelopes (prevents CPU spikes in long tails).
+- **Ramped clicks** — kick/snare/hat ramp the first 10-20 samples (was a click at sample 0).
+- **Real stereo decorrelation** — snare/hat use two independent seeded noise streams (was fake 0.9×).
+- **Soft saturation (tanh)** + hard clamp guard — guarantees |sample| ≤ 1.0.
+- **Bass variant 3 fixed** — was a dead branch that overrode octave+fifth to octave only.
+
+Every sound carries `provenance: { license: 'psboss-dsp', fingerprint: 'dsp:<id>:<seed>' }`.
+The host validates this format. Verified by `tests/psyboss/dsp.test.ts` (determinism + bounds + spectral).
 
 ### L4 — UI (React + shadcn)
 
-- **Transport bar**: BPM (138–148 default 144), play/stop, bar/beat readout, master meter.
-- **Scene matrix**: 4 tracks × 4 scenes (Scope 1) → 8×16 (Scope 2). Click a cell to arm/fire.
-- **Track strips**: gain, filter cutoff, send, mute/solo, parameter-lock indicator.
-- **Status footer** (sticky): engine state, latency, active voices, provenance policy.
+- **Transport bar**: BPM (120–160, default 144), play/stop, bar:beat readout, master meter (RMS+peak).
+- **Scene matrix**: 4 tracks × 4 scenes. Click a cell to arm/fire. Keyboard: `1-4` scenes, `Q-R` track, `Space` play.
+- **Track row selector**: highlights the current keyboard-focused row.
+- **Status footer** (sticky): transport state, phase, beat, engine info.
 
-Mobile-first, responsive, dark theme, keyboard-shortcut driven. The footer sticks per the
-project UI rules.
+Scope 2 UI fixes (ROAST-1 §6):
+- **Split meter store** — meter updates (20/sec) no longer re-render the scene matrix.
+- **Keyboard shortcuts** — was zero in Scope 1.
+- **Mobile meter** — was hidden on phones in Scope 1.
+- **Limiter tick at -1 dBFS** — was misleading -6dB tick.
 
-### L5 — Persistence (Turso libSQL, Scope 2+)
+### L5 — Persistence (Turso libSQL, Scope 3+)
 
-Projects, tracks, scenes, sample refs, parameter locks, render jobs — all persisted to Turso
-via Prisma. Scope 1 is in-memory only (the vertical slice doesn't need persistence yet).
+Not yet wired. Scope 3 will add Prisma schema (`Project`, `Track`, `Scene`, `SampleRef`,
+`ParameterLock`, `RenderJob`) and Turso libSQL with real migrations.
 
-## Data flow — "click a scene cell → hear a sound"
+## Data flow — "click a scene cell → hear a sound" (Scope 2, verified)
 
 1. User clicks cell `(track=2, scene=1)` in the React UI.
-2. UI calls `host.requestTrig(track, scene)`.
-3. Host builds a `trig` envelope, stamps `rev`/`seed`, publishes on PSYBUS at `ts = nextBarTime`.
-4. `MasterClock` worklet, at the next bar boundary, posts the armed trig to the main thread.
-5. Track-2 device receives the envelope, schedules a voice at `envelope.ts` (sample-accurate).
-6. Voice renders into the track's `GainNode` → filter → send → master → limiter → meter → out.
-7. Meter worklet posts RMS/peak; UI updates the meter bar.
-8. Track-2 publishes `voice.count` telemetry; UI updates the active-voice readout.
+2. UI calls `engine.requestTrig(track, scene)`.
+3. Engine builds a `trig` envelope with `sampleRef: dspProvenance('2:1', seed)` and calls `bus.publish`.
+4. **Host runs `assertProvenance`** — validates the `dsp:2:1:<seed>` fingerprint format. If invalid, throws → no sound.
+5. Host routes the envelope (unicast to `psyboss-engine`) to the engine's subscriber.
+6. Engine calls `armTrig(2, 1)` — pushes to the armed list.
+7. Worklet, at the next bar boundary, posts `transport` with `audioTime = currentTime`.
+8. Engine's `onmessage` handler calls `flushArmedTrigs` → schedules `BufferSource.start(audioTime + secPerBar)`.
+9. Voice plays into `trackGains[2]` → `masterGain` → `limiter` → `clockNode` (meter) → `destination`.
+10. Worklet meters the output, posts RMS/peak → `useMeter` store → meter bar updates.
+11. Voice's `onended` fires → removed from active set + disconnected (no leak).
 
-No `setInterval`. No `setTimeout` for timing. No main-thread DSP. Sample-accurate end to end.
+**Honest timing caveat (ROAST-1 §3):** the voice fires at the NEXT bar boundary after the click,
+not the one the click happened in. This is bar-quantized (correct) but adds up to 1 bar of latency
+for a click just after a boundary. A 100ms Worker lookahead scheduler (port `psy-sampler`'s
+`realization-scheduler.ts`) would let us schedule ahead and land exactly on the target bar. Scope 3.
 
-## Determinism & replay identity
+## Determinism & replay identity (Scope 2, verified)
 
-Every performance is a function of `(seed, projectState, inputEvents[])`. Given the same seed
-and inputs, the output is byte-identical (ported discipline from `psy/foundation/foundation.mjs`
-`resolveSong` + `serializeTimeline` with 10-generation replay identity). This is what makes
-offline render (Scope 2) produce a file identical to the live take — the family's replay claim,
-finally honored.
+Every performance is a function of `(seed, projectState, inputEvents[])`. The seed (`0x9e3779b9`
+default) is threaded through:
+- `mulberry32(seed)` → per-sound `subSeed(seed, soundId)` → independent noise streams.
+- `dspProvenance(soundId, seed)` → fingerprint `dsp:<soundId>:<seed>`, `verifiedAt: seed`.
+
+Same seed → byte-identical `Float32Array`s across runs. Verified by `tests/psyboss/dsp.test.ts`
+("same seed → byte-identical buffers across runs"). Different seed → different audio (verified).
+No `Math.random` or `Date.now` in `dsp.ts` (verified by test that greps the source).
+
+## Voice management (Scope 2, verified)
+
+- `activeVoices: Set<AudioBufferSourceNode>` — tracks live voices.
+- Hard cap 64. Under pressure, the oldest voice is stolen (`stop()` → `onended` cleans up).
+- Every voice has `onended = () => { delete from set; disconnect() }` — no node accumulation.
 
 ## What PSYBOSS explicitly does NOT do (scope discipline)
 
-- **Not a synth.** PsySynthPro is the synth. PSYBOSS sends it MIDI over PSYBUS (Scope 2).
-- **Not a drum machine.** psydrum is. PSYBOSS triggers it over PSYBUS (Scope 2).
-- **Not a radio follower.** psy4 is the research lab. PSYBOSS consumes a transport, it doesn't derive one (Scope 3 may consume psy5's PLL as an input source).
-- **Not a DAW.** No arrangement timeline in Scope 1. Arrangement view is Scope 4.
+- **Not a synth.** PsySynthPro is the synth. PSYBOSS sends it MIDI over PSYBUS (Scope 3).
+- **Not a drum machine.** psydrum is. PSYBOSS triggers it over PSYBUS (Scope 3).
+- **Not a radio follower.** psy4 is the research lab. PSYBOSS consumes a transport, it doesn't derive one.
+- **Not a DAW.** No arrangement timeline. Arrangement view is Scope 4.
 - **No commercial samples.** CC0 + procedural only. Provenance gate is non-negotiable.
+- **No real-time worklet synthesis (yet).** Sound is pre-rendered AudioBuffers. Scope 3 goal.
 
 Build less. Connect better. Measure everything. One source of truth. One musical clock. — the
-principle the family wrote in `PSY6_ARCHITECTURE.md:4` and never followed. PSYBOSS follows it.
+principle the family wrote in `PSY6_ARCHITECTURE.md:4` and never followed. PSYBOSS follows it,
+and now the docs match the code (ROAST-1 §8 fix: 18 doc-vs-code lies corrected).

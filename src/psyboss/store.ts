@@ -1,38 +1,40 @@
 /**
- * PSYBOSS UI store — bridges the AudioEngine to React.
+ * PSYBOSS UI stores — bridges the AudioEngine to React.
  *
- * The engine is the source of truth for audio. This store mirrors the slices
- * React needs to render (transport, meter, armed cells) and exposes actions
- * that delegate to the engine.
+ * Split into TWO stores (ROAST-1 §6 fix): the meter fires ~20×/sec and was causing
+ * the entire app (including the scene matrix) to re-render 20×/sec. Now meter
+ * subscribers select from `useMeter` and transport/UI subscribers select from
+ * `usePsyBoss`. Cells that don't depend on meter no longer re-render on meter posts.
  */
 
 import { create } from 'zustand'
-import { getEngine, type AudioEngine, type TransportState, type MeterState } from './engine/audio-engine'
+import {
+  getEngine,
+  type AudioEngine,
+  type TransportState,
+  type MeterState,
+} from './engine/audio-engine'
 
+// ── Transport + UI state (changes infrequently: play/stop/bpm/trig) ──────────
 export interface PsyBossState {
-  // engine lifecycle
   ready: boolean
   initError: string | null
-
-  // transport
   bpm: number
   beat: number
   bar: number
   phase: number
   playing: boolean
-
-  // meter (dBFS)
-  rms: number
-  peak: number
-
-  // UI feedback: which cell last fired (transient highlight)
-  lastFired: string | null // `${track}:${scene}`
-
-  // actions
+  lastFired: string | null
   init: () => Promise<void>
   togglePlay: () => void
   setBpm: (bpm: number) => void
   trig: (track: number, scene: number) => void
+}
+
+// ── Meter state (changes ~20×/sec during playback) — separate store ──────────
+export interface MeterStore {
+  rms: number
+  peak: number
 }
 
 let engine: AudioEngine | null = null
@@ -46,8 +48,6 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   bar: 0,
   phase: 0,
   playing: false,
-  rms: -140,
-  peak: -140,
   lastFired: null,
 
   init: async () => {
@@ -65,7 +65,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
           })
         })
         engine.onMeter((m: MeterState) => {
-          set({ rms: m.rms, peak: m.peak })
+          // Direct write to the meter store — does NOT re-render PsyBossState subscribers.
+          useMeter.setState({ rms: m.rms, peak: m.peak })
         })
         wired = true
       }
@@ -92,9 +93,10 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     if (!engine) return
     engine.requestTrig(track, scene)
     set({ lastFired: `${track}:${scene}` })
-    // clear the highlight after 180ms
     setTimeout(() => {
       if (get().lastFired === `${track}:${scene}`) set({ lastFired: null })
     }, 180)
   },
 }))
+
+export const useMeter = create<MeterStore>(() => ({ rms: -140, peak: -140 }))
