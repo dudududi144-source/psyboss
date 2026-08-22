@@ -449,7 +449,6 @@ export default function Home() {
   const bpm = usePsyBoss((s) => s.bpm)
   const beat = usePsyBoss((s) => s.beat)
   const bar = usePsyBoss((s) => s.bar)
-  const phase = usePsyBoss((s) => s.phase)
   const playing = usePsyBoss((s) => s.playing)
   const lastFired = usePsyBoss((s) => s.lastFired)
   const init = usePsyBoss((s) => s.init)
@@ -512,7 +511,7 @@ export default function Home() {
             <div className="leading-none">
               <div className="font-mono font-bold tracking-tight text-base md:text-lg">PSYBOSS</div>
               <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest hidden sm:block">
-                Performance Sampler · v0.2
+                Performance Sampler · v0.4
               </div>
             </div>
           </div>
@@ -723,46 +722,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Card className="p-4 bg-card/40 border-border/60">
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="w-4 h-4 text-emerald-400" />
-                  <span className="font-mono text-xs font-bold uppercase tracking-wider">Engine</span>
-                </div>
-                <div className="space-y-1 text-xs font-mono">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Scheduler</span><span className="text-emerald-400">AudioWorklet</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Voice cap</span><span>64 (steal)</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Quantize</span><span>Bar (4/4)</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Seed</span><span>0x9e3779b9</span></div>
-                </div>
-              </Card>
-              <Card className="p-4 bg-card/40 border-border/60">
-                <div className="flex items-center gap-2 mb-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span className="font-mono text-xs font-bold uppercase tracking-wider">Provenance</span>
-                </div>
-                <div className="space-y-1 text-xs font-mono">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Policy</span><span className="text-emerald-400">Enforced</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Gate path</span><span className="text-emerald-400">bus.publish</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Sources</span><span>PSYBOSS DSP</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Fingerprint</span><span>dsp:id:seed</span></div>
-                </div>
-              </Card>
-              <Card className="p-4 bg-card/40 border-border/60">
-                <div className="flex items-center gap-2 mb-2">
-                  <Radio className="w-4 h-4 text-emerald-400" />
-                  <span className="font-mono text-xs font-bold uppercase tracking-wider">PSYBUS</span>
-                </div>
-                <div className="space-y-1 text-xs font-mono">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Tier</span><span>0 (in-process)</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Routing</span><span className="text-emerald-400">unicast+broadcast</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Devices</span><span>2 (UI+eng)</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Direction</span><span className="text-emerald-400">Bidirectional</span></div>
-                </div>
-              </Card>
-            </section>
-
-            {/* ── STEP SEQUENCER + RENDER + SAMPLES (Scope 3-4) ── */}
+            {/* ── STEP SEQUENCER + RENDER + SAMPLES ── */}
             <Tabs defaultValue="sequencer" className="w-full">
               <TabsList className="grid w-full grid-cols-3 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
@@ -793,23 +753,15 @@ export default function Home() {
         )}
       </main>
 
-      {/* ── STATUS FOOTER (sticky bottom) ── */}
-      <footer className="sticky bottom-0 z-30 mt-auto border-t border-border/60 bg-card/80 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-3 md:px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 md:gap-3 text-[10px] font-mono text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${playing ? 'bg-emerald-400 animate-pulse' : 'bg-foreground/30'}`} />
-              {playing ? 'TRANSPORT RUNNING' : 'TRANSPORT STOPPED'}
-            </span>
-            <span className="text-border hidden sm:inline">|</span>
-            <span className="hidden sm:inline">phase {(phase * 100).toFixed(0)}%</span>
-            <span className="text-border hidden md:inline">|</span>
-            <span className="hidden md:inline">beat {beat.toFixed(2)}</span>
+      {/* ── STATUS FOOTER (mt-auto, NOT sticky — sticky caused overlap with long content) ── */}
+      <footer className="mt-auto border-t border-border/60 bg-card/80 backdrop-blur-md">
+        <div className="mx-auto max-w-7xl px-3 md:px-4 py-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
+            <span className={`w-1.5 h-1.5 rounded-full ${playing ? 'bg-emerald-400 animate-pulse' : 'bg-foreground/30'}`} />
+            {playing ? 'RUNNING' : 'STOPPED'}
           </div>
-          <div className="flex items-center gap-2 md:gap-3 text-[10px] font-mono text-muted-foreground">
-            <span className="hidden md:inline">No setInterval in audio path</span>
-            <span className="hidden md:inline text-border">|</span>
-            <span className="text-emerald-400/80">PSYBOSS · Scope 2 · MIT</span>
+          <div className="text-[10px] font-mono text-emerald-400/60">
+            PSYBOSS · v0.4 · MIT
           </div>
         </div>
       </footer>
