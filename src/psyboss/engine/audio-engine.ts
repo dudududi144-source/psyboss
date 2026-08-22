@@ -424,7 +424,11 @@ export class AudioEngine {
     }
 
     // Quantized armed trigs (scene-matrix clicks while playing) → next bar boundary.
-    const barStartTime = this.transport.bar * secPerBar // absolute bar-0-aligned time
+    // ROAST-5 #A fix: barStartTime = transport.audioTime (the audio-context time at the
+    // bar boundary, posted by the worklet). Was: transport.bar * secPerBar — WRONG because
+    // transport.bar is a counter, not an audio-context time. That made all steps play at
+    // the downbeat (clamped by Web Audio), not at their 16th-note positions.
+    const barStartTime = this.transport.audioTime
     const nextBarTime = barStartTime + secPerBar
     const safeNextBar = Math.max(nextBarTime, now + quantumSec)
     for (const trig of this.armedTrigs) {

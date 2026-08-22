@@ -62,6 +62,11 @@ class PsyBossClockProcessor extends AudioWorkletProcessor {
           break
         case 'stop':
           this.playing = false
+          // ROAST-5 #C fix: reset beat/bar so next play starts at bar 0 beat 0.
+          // Was: beat/bar kept their values, so transport.bar kept incrementing
+          // across play/stop cycles, breaking barStartTime math.
+          this.beat = 0
+          this.bar = 0
           this.postTransport()
           break
         case 'seek':

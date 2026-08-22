@@ -96,10 +96,12 @@ function StepSequencer() {
   const toggleStep = usePattern((s) => s.toggleStep)
   const setStepScene = usePattern((s) => s.setStepScene)
   const setStepCondition = usePattern((s) => s.setStepCondition)
+  const setStepSample = usePattern((s) => s.setStepSample)
   const setSelectedTrack = usePattern((s) => s.setSelectedTrack)
   const clearPattern = usePattern((s) => s.clearPattern)
   const patternEnabled = usePsyBoss((s) => s.patternEnabled)
   const setPatternEnabled = usePsyBoss((s) => s.setPatternEnabled)
+  const samples = usePsyBoss((s) => s.samples) // ROAST-5 #B: for sample-assign UI
   const beat = usePsyBoss((s) => s.beat)
 
   const currentStep = Math.floor(beat * 4) % STEPS_PER_BAR // 16th position
@@ -171,7 +173,26 @@ function StepSequencer() {
             {pattern.tracks[selectedTrack]?.map((step, i) => (
               <button
                 key={i}
-                onClick={() => toggleStep(i)}
+                onClick={(e) => {
+                  // Shift+click: cycle through loaded samples (ROAST-5 #B fix).
+                  if (e.shiftKey && samples.length > 0) {
+                    e.preventDefault()
+                    const currentIdx = step.sampleRef
+                      ? samples.findIndex((s) => s.id === step.sampleRef!.id)
+                      : -1
+                    // -1 (no sample) → 0 → 1 → ... → -1 (clear)
+                    const nextIdx = currentIdx + 1
+                    if (nextIdx >= samples.length) {
+                      setStepSample(i, null) // clear → back to procedural
+                    } else {
+                      const samp = samples[nextIdx]
+                      setStepSample(i, { id: samp.id, provenance: samp.provenance })
+                    }
+                    if (!step.active) toggleStep(i) // auto-activate on assign
+                    return
+                  }
+                  toggleStep(i)
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   // Right-click: cycle condition
@@ -189,17 +210,19 @@ function StepSequencer() {
                 className={`
                   relative aspect-square rounded border transition-all
                   ${step.active
-                    ? 'bg-gradient-to-br from-emerald-500/40 to-emerald-700/30 border-emerald-500/60'
+                    ? step.sampleRef
+                      ? 'bg-gradient-to-br from-cyan-500/40 to-cyan-700/30 border-cyan-500/60'
+                      : 'bg-gradient-to-br from-emerald-500/40 to-emerald-700/30 border-emerald-500/60'
                     : 'bg-foreground/5 border-border/40 hover:border-border/80'
                   }
                   ${currentStep === i && patternEnabled ? 'ring-2 ring-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : ''}
                   ${i % 4 === 0 ? 'border-l-2 border-l-emerald-500/30' : ''}
                 `}
-                title={`Step ${i + 1} · ${step.condition.kind} · scene ${step.scene + 1}${step.locks.length ? ` · ${step.locks.length} locks` : ''}`}
+                title={`Step ${i + 1} · ${step.condition.kind} · scene ${step.scene + 1}${step.locks.length ? ` · ${step.locks.length} locks` : ''}${step.sampleRef ? ` · sample: ${samples.find((s) => s.id === step.sampleRef!.id)?.name ?? '?'}` : ''}`}
               >
                 {step.active && (
                   <span className="text-[8px] font-mono font-bold text-foreground/60 absolute inset-0 flex items-center justify-center">
-                    {step.scene + 1}
+                    {step.sampleRef ? '♪' : step.scene + 1}
                   </span>
                 )}
                 {step.condition.kind !== 'always' && step.active && (
@@ -212,7 +235,7 @@ function StepSequencer() {
             ))}
           </div>
           <div className="mt-2 text-[10px] font-mono text-muted-foreground/60">
-            Left-click: toggle · Right-click: cycle condition (always → 50% → 25% → fill/4 → not-fill/4)
+            Left-click: toggle · Right-click: cycle condition · Shift+click: assign sample ({samples.length} loaded)
           </div>
         </div>
       </div>

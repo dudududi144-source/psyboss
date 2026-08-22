@@ -2,11 +2,12 @@
  * PSYBOSS offline renderer — renders a pattern to a WAV file.
  *
  * ROAST-3 #7 fix (honest contract): this is NOT "byte-identical to a live take."
- * Live and offline diverge on 6 axes: sample rate (hardware vs 48000), graph
- * topology (clockNode present vs absent), parameter lock handling (live now applies
- * gain/pitch/scene; offline applies gain-only), bar-0 scheduling (live now schedules
- * bar 0; offline always did), limiter state (warm vs cold), and immediate trigs
- * (live has them for stopped-transport clicks; offline has none).
+ * Live and offline diverge on 7 axes: sample rate (hardware vs 48000), graph
+ * topology (clockNode present vs absent), parameter lock handling (live applies
+ * gain/pitch/scene; offline applies gain-only), bar-0 scheduling (live schedules
+ * bar 0; offline always did), limiter state (warm vs cold), immediate trigs
+ * (live has them; offline has none), and sampleRef handling (ROAST-5 #D: offline
+ * now supports external samples via the samples map, matching live).
  *
  * What IS deterministic: given the same (pattern, seed, bpm, bars, sampleRate),
  * renderOffline produces byte-identical WAV output across runs. Verified by tests.
@@ -24,6 +25,9 @@ export interface RenderOptions {
   bpm: number
   bars: number
   sampleRate?: number
+  // ROAST-5 #D: external samples (from SampleLibrary) for steps with sampleRef.
+  // Keyed by sample id → AudioBuffer.
+  samples?: Map<string, AudioBuffer>
 }
 
 export interface RenderResult {
@@ -52,6 +56,7 @@ export async function renderOffline(opts: RenderOptions): Promise<RenderResult> 
   // Render master: all tracks mixed.
   const masterWav = await renderTrack({
     pattern, seed, bpm, bars, sampleRate, soloTrack: -1, duration,
+    samples: opts.samples,
   })
 
   // Render stems: one per track (solo each).
@@ -59,6 +64,7 @@ export async function renderOffline(opts: RenderOptions): Promise<RenderResult> 
   for (let t = 0; t < pattern.tracks.length; t++) {
     const stemWav = await renderTrack({
       pattern, seed, bpm, bars, sampleRate, soloTrack: t, duration,
+      samples: opts.samples,
     })
     stems.set(t, stemWav)
   }
@@ -74,8 +80,9 @@ async function renderTrack(args: {
   sampleRate: number
   soloTrack: number // -1 = all tracks; otherwise only this track
   duration: number
+  samples?: Map<string, AudioBuffer>
 }): Promise<Uint8Array> {
-  const { pattern, seed, bpm, bars, sampleRate, soloTrack, duration } = args
+  const { pattern, seed, bpm, bars, sampleRate, soloTrack, duration, samples } = args
   const length = Math.ceil(duration * sampleRate)
   const ctx = new OfflineAudioContext(2, length, sampleRate)
 
@@ -126,8 +133,15 @@ async function renderTrack(args: {
     )
     for (const s of scheduled) {
       if (soloTrack !== -1 && s.track !== soloTrack) continue
-      const key = `${s.track}:${s.scene}`
-      const buf = audioBuffers.get(key)
+      // ROAST-5 #D: use external sample if sampleRef is set, else procedural bank.
+      let buf: AudioBuffer | undefined
+      if (s.sampleRef && samples) {
+        buf = samples.get(s.sampleRef.id)
+      }
+      if (!buf) {
+        const key = `${s.track}:${s.scene}`
+        buf = audioBuffers.get(key)
+      }
       if (!buf) continue
       const src = ctx.createBufferSource()
       src.buffer = buf

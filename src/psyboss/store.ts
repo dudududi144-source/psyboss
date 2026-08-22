@@ -56,12 +56,27 @@ export interface PsyBossState {
   loadSample: (file: File, metadata: SampleMetadata) => Promise<void>
   refreshSamples: () => void
   removeSample: (id: string) => void
+  saveProject: (name: string) => Promise<void>
+  loadProject: (id: string) => Promise<void>
+  listProjects: () => Promise<void>
+  projects: ProjectSummary[]
+  persistenceError: string | null
 }
 
 // ── Meter state ───────────────────────────────────────────────────────────────
 export interface MeterStore {
   rms: number
   peak: number
+}
+
+// ── Project summary (for list display) ───────────────────────────────────────
+export interface ProjectSummary {
+  id: string
+  name: string
+  bpm: number
+  patternEnabled: boolean
+  updatedAt: string
+  _count: { steps: number; samples: number }
 }
 
 // ── Pattern state (step sequencer) ────────────────────────────────────────────
@@ -98,6 +113,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   lastRenderInfo: null,
   samples: [],
   sampleError: null,
+  projects: [],
+  persistenceError: null,
 
   init: async () => {
     if (get().ready) return
@@ -203,6 +220,74 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     if (lib) {
       lib.remove(id)
       set({ samples: engine.listSamples() })
+    }
+  },
+
+  // ── SCOPE 5: Prisma/Turso persistence ──
+  saveProject: async (name: string) => {
+    set({ persistenceError: null })
+    try {
+      const pattern = usePattern.getState().pattern
+      const steps: Array<{ track: number; step: number; active: boolean; scene: number; condition: string; locks: string }> = []
+      for (let t = 0; t < pattern.tracks.length; t++) {
+        for (let s = 0; s < pattern.tracks[t].length; s++) {
+          const step = pattern.tracks[t][s]
+          steps.push({
+            track: t, step: s,
+            active: step.active, scene: step.scene,
+            condition: JSON.stringify(step.condition),
+            locks: JSON.stringify(step.locks),
+          })
+        }
+      }
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, bpm: get().bpm, patternEnabled: get().patternEnabled, steps }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Save failed')
+      await get().listProjects()
+    } catch (e) {
+      set({ persistenceError: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  loadProject: async (id: string) => {
+    set({ persistenceError: null })
+    try {
+      const res = await fetch(`/api/projects/${id}`)
+      if (!res.ok) throw new Error('Load failed')
+      const { project } = await res.json()
+      // Restore BPM + pattern enabled
+      get().setBpm(project.bpm)
+      get().setPatternEnabled(project.patternEnabled)
+      // Restore pattern steps
+      const { createPattern } = await import('./engine/sequencer')
+      let pattern = createPattern(SEED, NUM_TRACKS)
+      for (const s of project.steps) {
+        if (s.active) {
+          pattern = (await import('./engine/sequencer')).toggleStep(pattern, s.track, s.step)
+        }
+        pattern = (await import('./engine/sequencer')).setStepScene(pattern, s.track, s.step, s.scene)
+        const cond = JSON.parse(s.condition)
+        pattern = (await import('./engine/sequencer')).setStepCondition(pattern, s.track, s.step, cond)
+      }
+      usePattern.setState({ pattern })
+      if (engine) engine.setPattern(get().patternEnabled ? pattern : null)
+    } catch (e) {
+      set({ persistenceError: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  listProjects: async () => {
+    set({ persistenceError: null })
+    try {
+      const res = await fetch('/api/projects')
+      if (!res.ok) throw new Error('List failed')
+      const { projects } = await res.json()
+      set({ projects })
+    } catch (e) {
+      set({ persistenceError: e instanceof Error ? e.message : String(e) })
     }
   },
 }))

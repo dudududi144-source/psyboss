@@ -100,6 +100,11 @@ export class InProcessPsyBus implements PsyBus {
       return
     }
     // All other licenses require a real sha-256 (64 lowercase hex chars).
+    // ROAST-5 #E honesty: the gate validates FORMAT only (64-char hex), not
+    // integrity. It does NOT re-hash the sample bytes to verify they match.
+    // Integrity is enforced at SampleLibrary.add() time (SHA-256 computed from
+    // the file bytes). A malicious actor who swaps the file after loading would
+    // bypass this. Acceptable for Scope 4; revisit if PSYBOSS ships commercially.
     if (!/^[a-f0-9]{64}$/.test(pr.fingerprint)) {
       throw new ProvenanceError(
         `SampleRef ${ref.id} fingerprint must be a 64-char lowercase sha-256 (got len ${pr.fingerprint.length})`,
