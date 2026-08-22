@@ -29,7 +29,7 @@ import {
 } from '@/psybus/types'
 import { renderSoundBank, dspProvenance } from './dsp'
 import { collectScheduledSteps, type Pattern, type ParameterLock, STEPS_PER_BAR } from './sequencer'
-import { SampleLibrary, type LoadedSample, type SampleMetadata } from './sample-library'
+import { SampleLibrary, type LoadedSample, type SampleMetadata, validateMetadata } from './sample-library'
 
 export interface TransportState {
   bpm: number
@@ -85,6 +85,7 @@ export class AudioEngine {
   private busSubscribed = false
   private currentPattern: Pattern | null = null
   private sampleLibrary: SampleLibrary | null = null
+  private lastScheduledBar: number = -1 // ROAST-4 #1: de-duplicate pattern scheduling per bar
 
   constructor(seed: number = DEFAULT_SEED) {
     this.seed = seed
@@ -336,8 +337,8 @@ export class AudioEngine {
   play(): void {
     if (!this.clockNode || !this.ctx) return
     if (this.ctx.state === 'suspended') this.ctx.resume()
+    this.lastScheduledBar = -1 // ROAST-4 #1: reset so bar 0 gets scheduled on play
     this.clockNode.port.postMessage({ kind: 'play' })
-    // Optimistic UI update; the worklet will post authoritative transport within ~1 quantum.
     this.transport = { ...this.transport, playing: true }
     this.emitTransport()
   }
@@ -347,6 +348,7 @@ export class AudioEngine {
     this.clockNode.port.postMessage({ kind: 'stop' })
     this.transport = { ...this.transport, playing: false }
     this.armedTrigs = []
+    this.lastScheduledBar = -1 // ROAST-4 #1: reset for next play
     this.emitTransport()
   }
 
@@ -374,9 +376,17 @@ export class AudioEngine {
   /**
    * Load a sample file with license metadata. Returns a SampleRef that can be
    * used in a `trig` envelope. The provenance gate will validate it at publish time.
+   *
+   * ROAST-4 #3 fix: validateMetadata is now called here (was: dead code, only
+   * called from tests — the exact psy-sampler addFromBuffer hole PSYBOSS's own
+   * ROAST.md documents).
    */
   async loadSample(file: File, metadata: SampleMetadata): Promise<SampleRef> {
     if (!this.sampleLibrary) throw new Error('Engine not initialized')
+    const errors = validateMetadata(metadata)
+    if (errors.length > 0) {
+      throw new Error(`Invalid sample metadata: ${errors.join(', ')}`)
+    }
     return this.sampleLibrary.add(file, metadata)
   }
 
@@ -388,11 +398,15 @@ export class AudioEngine {
   /**
    * Schedule armed trigs + pattern steps.
    *
-   * ROAST-3 #1 fix: was scheduling only bar N+1, skipping bar N entirely (1.667s silence
-   * at play start). Now schedules the CURRENT bar's remaining steps (from audioTime) AND
-   * the next bar's full steps. At play time, the current bar is bar 0 → bar 0 is now audible.
+   * ROAST-4 #1 fix: the ROAST-3 #1 (bar-0 scheduling) and #2 (16th-note posts) fixes
+   * CONFLICTED — flushArmedTrigs ran on every 16th-note post, re-scheduling the whole
+   * bar 16× with drifting audioTime (which was a 16th boundary, not a bar boundary).
+   * Result: 2048 voices/bar vs cap 64 = 1984 stolen.
    *
-   * ROAST-3 #3 fix: parameter locks are now passed through to scheduleVoice.
+   * Fix: track `lastScheduledBar`. Pattern scheduling only runs ONCE per bar (when
+   * `transport.bar` changes). The 16th-note posts still update the UI highlight via
+   * the transport listener, but flushArmedTrigs skips pattern scheduling if the bar
+   * hasn't changed. armedTrigs (scene-matrix clicks) still flush on every post.
    */
   private flushArmedTrigs() {
     if (!this.ctx) return
@@ -410,7 +424,8 @@ export class AudioEngine {
     }
 
     // Quantized armed trigs (scene-matrix clicks while playing) → next bar boundary.
-    const nextBarTime = this.transport.audioTime + secPerBar
+    const barStartTime = this.transport.bar * secPerBar // absolute bar-0-aligned time
+    const nextBarTime = barStartTime + secPerBar
     const safeNextBar = Math.max(nextBarTime, now + quantumSec)
     for (const trig of this.armedTrigs) {
       if (trig.immediate) continue
@@ -418,26 +433,27 @@ export class AudioEngine {
     }
     this.armedTrigs = []
 
-    // Pattern playback: schedule BOTH the current bar's remaining steps AND the next bar.
-    // The worklet posts transport AT the bar boundary, so audioTime ≈ now. Current bar's
-    // steps that are in the future (audioTime has just arrived) get scheduled; past steps
-    // in this bar are skipped by the `audioTime >= now - quantumSec` guard in scheduleVoice.
-    if (this.currentPattern) {
-      // Current bar (bar N): schedule steps from audioTime onward.
+    // Pattern playback: ONLY schedule when a NEW bar has arrived (de-duplicate).
+    // The worklet posts transport on every 16th-note boundary (for UI highlight),
+    // but we only need to schedule pattern steps once per bar.
+    if (this.currentPattern && this.transport.bar !== this.lastScheduledBar) {
       const currentBar = this.transport.bar
+      this.lastScheduledBar = currentBar
+
+      // Current bar (bar N): schedule steps from barStartTime onward.
+      // Steps already in the past (we're mid-bar) are skipped.
       const currentBarScheduled = collectScheduledSteps(
         this.currentPattern,
         0,
         STEPS_PER_BAR,
         currentBar,
         stepSeconds,
-        this.transport.audioTime, // bar N start time
+        barStartTime,
         this.seed,
       )
       for (const s of currentBarScheduled) {
-        // Only schedule steps that haven't passed yet (within this bar).
         if (s.audioTime >= now - quantumSec) {
-          this.scheduleVoice(s.track, s.scene, Math.max(s.audioTime, now + quantumSec), s.locks)
+          this.scheduleVoice(s.track, s.scene, Math.max(s.audioTime, now + quantumSec), s.locks, s.sampleRef)
         }
       }
 
@@ -453,7 +469,7 @@ export class AudioEngine {
         this.seed,
       )
       for (const s of nextBarScheduled) {
-        this.scheduleVoice(s.track, s.scene, s.audioTime, s.locks)
+        this.scheduleVoice(s.track, s.scene, s.audioTime, s.locks, s.sampleRef)
       }
     }
   }

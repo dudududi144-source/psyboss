@@ -21,6 +21,7 @@ import {
   setStepScene,
   setStepCondition,
   addParameterLock,
+  setStepSample,
   type Pattern,
   type ParameterLock,
   STEPS_PER_BAR,
@@ -71,6 +72,7 @@ export interface PatternStore {
   setStepScene: (step: number, scene: number) => void
   setStepCondition: (step: number, cond: TrigCondition) => void
   addLock: (step: number, lock: ParameterLock) => void
+  setStepSample: (step: number, sampleRef: import('@/psybus/types').SampleRef | null) => void
   setSelectedTrack: (t: number) => void
   clearPattern: () => void
 }
@@ -241,6 +243,15 @@ export const usePattern = create<PatternStore>((set, get) => ({
   addLock: (step: number, lock: ParameterLock) => {
     const { pattern, selectedTrack } = get()
     const next = addParameterLock(pattern, selectedTrack, step, lock)
+    set({ pattern: next })
+    if (engine && usePsyBoss.getState().patternEnabled) {
+      engine.setPattern(next)
+    }
+  },
+
+  setStepSample: (step: number, sampleRef: import('@/psybus/types').SampleRef | null) => {
+    const { pattern, selectedTrack } = get()
+    const next = setStepSample(pattern, selectedTrack, step, sampleRef)
     set({ pattern: next })
     if (engine && usePsyBoss.getState().patternEnabled) {
       engine.setPattern(next)

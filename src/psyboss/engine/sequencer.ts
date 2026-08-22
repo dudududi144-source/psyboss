@@ -15,6 +15,7 @@
 
 import { LFSR16, evaluateCondition, type TrigCondition } from './lfsr'
 import { subSeed } from './rng'
+import type { SampleRef } from '@/psybus/types'
 
 export const STEPS_PER_BAR = 16 // 16th notes in 4/4
 
@@ -28,6 +29,7 @@ export interface Step {
   scene: number // which scene variant to trigger (0-3)
   condition: TrigCondition // when does this step fire?
   locks: ParameterLock[] // per-step parameter overrides
+  sampleRef?: SampleRef // optional: use a loaded sample instead of procedural DSP
 }
 
 export interface Pattern {
@@ -105,12 +107,27 @@ export function addParameterLock(
   return { ...pattern, tracks }
 }
 
+/** Set a step's sampleRef (assign a loaded sample). null = use procedural DSP. */
+export function setStepSample(
+  pattern: Pattern,
+  track: number,
+  step: number,
+  sampleRef: SampleRef | null,
+): Pattern {
+  const tracks = pattern.tracks.map((t, ti) => {
+    if (ti !== track) return t
+    return t.map((s, si) => (si === step ? { ...s, sampleRef: sampleRef ?? undefined } : s))
+  })
+  return { ...pattern, tracks }
+}
+
 export interface ScheduledStep {
   track: number
   step: number
   scene: number
   audioTime: number
   locks: ParameterLock[]
+  sampleRef?: SampleRef
 }
 
 /**
@@ -156,6 +173,7 @@ export function collectScheduledSteps(
         scene: step.scene,
         audioTime: barStartTime + s * stepSeconds,
         locks: step.locks,
+        sampleRef: step.sampleRef, // ROAST-4 #2: carry sampleRef to scheduleVoice
       })
     }
   }
