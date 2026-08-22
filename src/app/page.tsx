@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser } from 'lucide-react'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -43,8 +43,11 @@ function MeterBar({ label, accent }: { label: string; accent: string }) {
   )
 }
 
-// memo'd so it only re-renders when its own props change (ROAST-2 #4 fix:
-// without memo, every meter post (20/sec) re-rendered all 16 cells).
+// memo'd so it only re-renders when its own props change (ROAST-2 #4 fix).
+// ROAST-3 fix: onTrig is now a stable callback (handleTrig via useCallback);
+// previously a new arrow `() => handleTrig(track, scene)` was created per cell
+// per render, defeating React.memo. Now SceneCell receives track+scene+handleTrig
+// as separate stable props and calls handleTrig(track, scene) internally.
 const SceneCell = memo(function SceneCell({
   track,
   scene,
@@ -54,7 +57,7 @@ const SceneCell = memo(function SceneCell({
   track: number
   scene: number
   armed: boolean
-  onTrig: () => void
+  onTrig: (track: number, scene: number) => void
 }) {
   const trackColor = [
     'from-emerald-500/30 to-emerald-700/20 border-emerald-500/40',
@@ -65,7 +68,7 @@ const SceneCell = memo(function SceneCell({
 
   return (
     <button
-      onClick={onTrig}
+      onClick={() => onTrig(track, scene)}
       aria-label={`Trigger ${TRACKS[track]} scene ${scene + 1}`}
       className={`
         relative aspect-square rounded-lg border bg-gradient-to-br ${trackColor}
@@ -297,6 +300,140 @@ function RenderPanel() {
       {lastRenderInfo && !rendering && (
         <div className="text-[11px] font-mono text-muted-foreground">
           ✓ {lastRenderInfo} · @ {bpm} BPM
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ── Sample panel component (Scope 4) ─────────────────────────────────────────
+function SamplePanel() {
+  const samples = usePsyBoss((s) => s.samples)
+  const sampleError = usePsyBoss((s) => s.sampleError)
+  const loadSample = usePsyBoss((s) => s.loadSample)
+  const removeSample = usePsyBoss((s) => s.removeSample)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [license, setLicense] = useState<string>('CC0')
+  const [source, setSource] = useState<string>('')
+  const [author, setAuthor] = useState<string>('')
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) setSelectedFile(f)
+  }
+
+  const handleLoad = async () => {
+    if (!selectedFile || !source.trim()) return
+    await loadSample(selectedFile, {
+      name: selectedFile.name,
+      license: license as 'CC0' | 'CC-BY' | 'CC-BY-SA' | 'CC-BY-NC' | 'commercial-licensed',
+      source: source.trim(),
+      author: author.trim() || undefined,
+    })
+    setSelectedFile(null)
+    setSource('')
+    setAuthor('')
+  }
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Library className="w-4 h-4 text-emerald-400" />
+        <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          Sample Library
+        </h3>
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 mb-3">
+        Load your own samples. Every sample MUST carry a <span className="font-mono text-emerald-400">Provenance</span> record
+        with a SHA-256 fingerprint. The PSYBUS gate rejects anything without valid provenance.
+      </p>
+
+      {/* Load form */}
+      <div className="space-y-2 mb-4 p-3 rounded-md border border-border/40 bg-black/20">
+        <div className="text-[10px] font-mono text-muted-foreground uppercase">Import Sample</div>
+        <input
+          type="file"
+          accept="audio/*"
+          onChange={handleFile}
+          className="text-[11px] font-mono w-full"
+        />
+        {selectedFile && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={license}
+                onChange={(e) => setLicense(e.target.value)}
+                className="text-[11px] font-mono bg-background border border-border rounded px-2 py-1"
+              >
+                <option value="CC0">CC0 (public domain)</option>
+                <option value="CC-BY">CC-BY (attribution)</option>
+                <option value="CC-BY-SA">CC-BY-SA (share-alike)</option>
+                <option value="CC-BY-NC">CC-BY-NC (non-commercial)</option>
+                <option value="commercial-licensed">Commercial-licensed</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Source URL *"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="text-[11px] font-mono bg-background border border-border rounded px-2 py-1"
+              />
+            </div>
+            <input
+              type="text"
+              placeholder="Author (optional)"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+              className="text-[11px] font-mono bg-background border border-border rounded px-2 py-1 w-full"
+            />
+            <Button
+              onClick={handleLoad}
+              disabled={!source.trim()}
+              size="sm"
+              className="bg-emerald-500 hover:bg-emerald-400 text-black font-mono w-full"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1.5" />
+              Load & Fingerprint
+            </Button>
+          </>
+        )}
+        {sampleError && (
+          <div className="text-[11px] font-mono text-destructive">
+            Error: {sampleError}
+          </div>
+        )}
+      </div>
+
+      {/* Loaded samples list */}
+      <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
+        Loaded ({samples.length})
+      </div>
+      {samples.length === 0 ? (
+        <div className="text-[11px] font-mono text-muted-foreground/50 italic">
+          No samples loaded. Procedural DSP is active for all tracks.
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {samples.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between gap-2 p-2 rounded border border-border/40 bg-black/20 text-[11px] font-mono"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-foreground/80">{s.name}</div>
+                <div className="text-[9px] text-muted-foreground/60">
+                  {s.provenance.license} · {s.provenance.fingerprint.slice(0, 16)}… · {s.buffer.duration.toFixed(1)}s · {s.buffer.sampleRate}Hz
+                </div>
+              </div>
+              <button
+                onClick={() => removeSample(s.id)}
+                className="text-muted-foreground hover:text-destructive p-1"
+                aria-label="Remove sample"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </Card>
@@ -576,7 +713,7 @@ export default function Home() {
                             track={track}
                             scene={scene}
                             armed={armed}
-                            onTrig={() => handleTrig(track, scene)}
+                            onTrig={handleTrig}
                           />
                         )
                       })}
@@ -625,27 +762,31 @@ export default function Home() {
               </Card>
             </section>
 
-            {/* ── STEP SEQUENCER + RENDER (Scope 3) ── */}
+            {/* ── STEP SEQUENCER + RENDER + SAMPLES (Scope 3-4) ── */}
             <Tabs defaultValue="sequencer" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-card/40">
+              <TabsList className="grid w-full grid-cols-3 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Music2 className="w-3.5 h-3.5 mr-1.5" />
-                  Step Sequencer
+                  Sequencer
                 </TabsTrigger>
                 <TabsTrigger value="render" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <FileAudio className="w-3.5 h-3.5 mr-1.5" />
-                  Render & Export
+                  Render
+                </TabsTrigger>
+                <TabsTrigger value="samples" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Library className="w-3.5 h-3.5 mr-1.5" />
+                  Samples
                 </TabsTrigger>
               </TabsList>
 
-              {/* ── Step Sequencer tab ── */}
               <TabsContent value="sequencer" className="mt-3">
                 <StepSequencer />
               </TabsContent>
-
-              {/* ── Render tab ── */}
               <TabsContent value="render" className="mt-3">
                 <RenderPanel />
+              </TabsContent>
+              <TabsContent value="samples" className="mt-3">
+                <SamplePanel />
               </TabsContent>
             </Tabs>
           </>

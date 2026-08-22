@@ -113,9 +113,14 @@ class PsyBossClockProcessor extends AudioWorkletProcessor {
       const quantumSec = n / sampleRate
       const beatsPerSec = this.bpm / 60
       const prevBar = Math.floor(this.beat / 4)
+      const prevStep = Math.floor(this.beat * 4) // 16th-note step index (0-15 per bar)
       this.beat += quantumSec * beatsPerSec
       const newBar = Math.floor(this.beat / 4)
-      if (newBar > prevBar) {
+      const newStep = Math.floor(this.beat * 4)
+      // ROAST-3 #2 fix: post transport on EVERY 16th-note boundary (not just bars)
+      // so the UI's step highlight can track the current step. At 144 BPM, a 16th =
+      // 104ms → ~9.6 posts/sec (manageable, not a flood).
+      if (newStep > prevStep || newBar > prevBar) {
         this.bar = newBar
         this.postTransport()
       }

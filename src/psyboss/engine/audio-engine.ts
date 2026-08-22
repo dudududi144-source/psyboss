@@ -28,7 +28,8 @@ import {
   type SampleRef,
 } from '@/psybus/types'
 import { renderSoundBank, dspProvenance } from './dsp'
-import { collectScheduledSteps, type Pattern, STEPS_PER_BAR } from './sequencer'
+import { collectScheduledSteps, type Pattern, type ParameterLock, STEPS_PER_BAR } from './sequencer'
+import { SampleLibrary, type LoadedSample, type SampleMetadata } from './sample-library'
 
 export interface TransportState {
   bpm: number
@@ -83,6 +84,7 @@ export class AudioEngine {
   private workletReady = false
   private busSubscribed = false
   private currentPattern: Pattern | null = null
+  private sampleLibrary: SampleLibrary | null = null
 
   constructor(seed: number = DEFAULT_SEED) {
     this.seed = seed
@@ -166,6 +168,9 @@ export class AudioEngine {
       buf.copyToChannel(stereo.right, 1)
       this.soundBank.set(key, buf)
     }
+
+    // ── Initialize the sample library (for user-loaded samples) ──
+    this.sampleLibrary = new SampleLibrary(ctx)
 
     // ── Wire PSYBUS: the engine subscribes to trigs published by the UI ──
     // This is THE fix for ROAST-1 §1 (#1 embarrassing defect): the bus is no longer dead.
@@ -258,26 +263,63 @@ export class AudioEngine {
     this.armedTrigs.push({ track, scene, immediate })
   }
 
-  private scheduleVoice(track: number, scene: number, when: number) {
+  private scheduleVoice(track: number, scene: number, when: number, locks: ParameterLock[] = [], sampleRef?: SampleRef) {
     if (!this.ctx) return
-    const key = `${track}:${scene}`
-    const buf = this.soundBank.get(key)
+    // Determine the buffer: external sample (if sampleRef provided) or procedural sound bank.
+    let buf: AudioBuffer | undefined
+    if (sampleRef && this.sampleLibrary) {
+      const loaded = this.sampleLibrary.get(sampleRef.id)
+      if (loaded) buf = loaded.buffer
+    }
+    if (!buf) {
+      const key = `${track}:${scene}`
+      buf = this.soundBank.get(key)
+    }
     if (!buf) return
 
-    // Voice cap: steal the oldest active voice if we'd exceed the limit.
+    // Voice cap: steal the oldest voice if we'd exceed the limit.
+    // ROAST-3 #6 fix: remove synchronously (was: async onended → size hit 65).
     if (this.activeVoices.size >= VOICE_CAP) {
       const oldest = this.activeVoices.values().next().value
       if (oldest) {
+        this.activeVoices.delete(oldest) // synchronous removal
         try { oldest.stop() } catch { /* already stopped */ }
-        // onended handler will remove it from the set and disconnect.
+        try { oldest.disconnect() } catch { /* already disconnected */ }
       }
     }
 
     const src = this.ctx.createBufferSource()
     src.buffer = buf
-    src.connect(this.trackGains[track] ?? this.masterGain!)
+
+    // Apply parameter locks (ROAST-3 #3 fix: was silently dropped in live path).
+    // Supported: 'gain' → per-voice GainNode, 'pitch' → playbackRate, 'scene' → buffer lookup.
+    const gainLock = locks.find((l) => l.param === 'gain')
+    const pitchLock = locks.find((l) => l.param === 'pitch')
+    const sceneLock = locks.find((l) => l.param === 'scene')
+
+    // Scene override: use a different buffer if the lock specifies one.
+    if (sceneLock) {
+      const altKey = `${track}:${Math.round(sceneLock.value)}`
+      const altBuf = this.soundBank.get(altKey)
+      if (altBuf) src.buffer = altBuf
+    }
+
+    // Pitch override via playbackRate.
+    if (pitchLock) {
+      src.playbackRate.value = Math.max(0.25, Math.min(4, pitchLock.value))
+    }
+
+    // Gain override via per-voice GainNode.
+    if (gainLock) {
+      const gainNode = this.ctx.createGain()
+      gainNode.gain.value = gainLock.value
+      src.connect(gainNode)
+      gainNode.connect(this.trackGains[track] ?? this.masterGain!)
+    } else {
+      src.connect(this.trackGains[track] ?? this.masterGain!)
+    }
+
     this.activeVoices.add(src)
-    // Clean up: disconnect + remove from active set when the buffer finishes playing.
     src.onended = () => {
       this.activeVoices.delete(src)
       try { src.disconnect() } catch { /* already disconnected */ }
@@ -285,9 +327,9 @@ export class AudioEngine {
     try {
       src.start(when)
     } catch {
-      // start time was in the past; fire immediately
       try { src.start() } catch { /* give up */ }
       this.activeVoices.delete(src)
+      try { src.disconnect() } catch { /* already disconnected */ }
     }
   }
 
@@ -324,13 +366,33 @@ export class AudioEngine {
     return this.currentPattern
   }
 
+  /** Get the sample library (for UI to add/list samples). */
+  getSampleLibrary(): SampleLibrary | null {
+    return this.sampleLibrary
+  }
+
   /**
-   * Schedule armed trigs + pattern steps for the next bar.
+   * Load a sample file with license metadata. Returns a SampleRef that can be
+   * used in a `trig` envelope. The provenance gate will validate it at publish time.
+   */
+  async loadSample(file: File, metadata: SampleMetadata): Promise<SampleRef> {
+    if (!this.sampleLibrary) throw new Error('Engine not initialized')
+    return this.sampleLibrary.add(file, metadata)
+  }
+
+  /** List loaded samples (for UI display). */
+  listSamples(): LoadedSample[] {
+    return this.sampleLibrary?.list() ?? []
+  }
+
+  /**
+   * Schedule armed trigs + pattern steps.
    *
-   * - Immediate trigs (transport was stopped when armed): fire NOW.
-   * - Quantized trigs + pattern steps: schedule at the NEXT bar boundary
-   *   = audioTime + secPerBar. Pattern steps are collected via collectScheduledSteps
-   *   (deterministic, LFSR-seeded conditions evaluated per-bar).
+   * ROAST-3 #1 fix: was scheduling only bar N+1, skipping bar N entirely (1.667s silence
+   * at play start). Now schedules the CURRENT bar's remaining steps (from audioTime) AND
+   * the next bar's full steps. At play time, the current bar is bar 0 → bar 0 is now audible.
+   *
+   * ROAST-3 #3 fix: parameter locks are now passed through to scheduleVoice.
    */
   private flushArmedTrigs() {
     if (!this.ctx) return
@@ -338,29 +400,50 @@ export class AudioEngine {
     const secPerBar = (60 / this.transport.bpm) * BEATS_PER_BAR
     const stepSeconds = secPerBar / STEPS_PER_BAR
     const now = this.ctx.currentTime
+    const quantumSec = 128 / this.ctx.sampleRate
 
     // Immediate trigs (from scene-matrix clicks while stopped).
     for (const trig of this.armedTrigs) {
       if (!trig.immediate) continue
-      const safeWhen = Math.max(now + 0.005, now + 128 / this.ctx.sampleRate)
+      const safeWhen = Math.max(now + 0.005, now + quantumSec)
       this.scheduleVoice(trig.track, trig.scene, safeWhen)
     }
 
-    // Quantized: schedule at the next bar boundary.
+    // Quantized armed trigs (scene-matrix clicks while playing) → next bar boundary.
     const nextBarTime = this.transport.audioTime + secPerBar
-    const safeNextBar = Math.max(nextBarTime, now + 128 / this.ctx.sampleRate)
-
-    // Quantized armed trigs (scene-matrix clicks while playing).
+    const safeNextBar = Math.max(nextBarTime, now + quantumSec)
     for (const trig of this.armedTrigs) {
       if (trig.immediate) continue
       this.scheduleVoice(trig.track, trig.scene, safeNextBar)
     }
     this.armedTrigs = []
 
-    // Pattern playback: collect all steps for the NEXT bar and schedule them.
+    // Pattern playback: schedule BOTH the current bar's remaining steps AND the next bar.
+    // The worklet posts transport AT the bar boundary, so audioTime ≈ now. Current bar's
+    // steps that are in the future (audioTime has just arrived) get scheduled; past steps
+    // in this bar are skipped by the `audioTime >= now - quantumSec` guard in scheduleVoice.
     if (this.currentPattern) {
-      const nextBar = this.transport.bar + 1
-      const scheduled = collectScheduledSteps(
+      // Current bar (bar N): schedule steps from audioTime onward.
+      const currentBar = this.transport.bar
+      const currentBarScheduled = collectScheduledSteps(
+        this.currentPattern,
+        0,
+        STEPS_PER_BAR,
+        currentBar,
+        stepSeconds,
+        this.transport.audioTime, // bar N start time
+        this.seed,
+      )
+      for (const s of currentBarScheduled) {
+        // Only schedule steps that haven't passed yet (within this bar).
+        if (s.audioTime >= now - quantumSec) {
+          this.scheduleVoice(s.track, s.scene, Math.max(s.audioTime, now + quantumSec), s.locks)
+        }
+      }
+
+      // Next bar (bar N+1): schedule the full bar ahead.
+      const nextBar = currentBar + 1
+      const nextBarScheduled = collectScheduledSteps(
         this.currentPattern,
         0,
         STEPS_PER_BAR,
@@ -369,8 +452,8 @@ export class AudioEngine {
         nextBarTime,
         this.seed,
       )
-      for (const s of scheduled) {
-        this.scheduleVoice(s.track, s.scene, s.audioTime)
+      for (const s of nextBarScheduled) {
+        this.scheduleVoice(s.track, s.scene, s.audioTime, s.locks)
       }
     }
   }

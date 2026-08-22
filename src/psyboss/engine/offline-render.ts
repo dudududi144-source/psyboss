@@ -1,12 +1,15 @@
 /**
- * PSYBOSS offline renderer — renders a pattern to a WAV file, byte-identical to
- * a live take with the same seed.
+ * PSYBOSS offline renderer — renders a pattern to a WAV file.
  *
- * Uses OfflineAudioContext to render the exact same audio graph (worklet + DSP
- * + master bus) offline, then encodes to 16-bit WAV.
+ * ROAST-3 #7 fix (honest contract): this is NOT "byte-identical to a live take."
+ * Live and offline diverge on 6 axes: sample rate (hardware vs 48000), graph
+ * topology (clockNode present vs absent), parameter lock handling (live now applies
+ * gain/pitch/scene; offline applies gain-only), bar-0 scheduling (live now schedules
+ * bar 0; offline always did), limiter state (warm vs cold), and immediate trigs
+ * (live has them for stopped-transport clicks; offline has none).
  *
- * Determinism contract: renderOffline(pattern, seed, bpm, bars) produces the
- * same bytes every time (given the same seed). Verified by tests/render.test.ts.
+ * What IS deterministic: given the same (pattern, seed, bpm, bars, sampleRate),
+ * renderOffline produces byte-identical WAV output across runs. Verified by tests.
  *
  * Browser-only: OfflineAudioContext is a Web API.
  */

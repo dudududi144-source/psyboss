@@ -1,12 +1,12 @@
 /**
- * PSYBOSS PolyBLEP aliasing test — REAL spectral verification (not band-ratio smoke).
+ * PSYBOSS PolyBLEP aliasing test — REAL spectral verification.
  *
- * ROAST-2 #3 fix: the Scope-2 band-ratio test (>0.65) passed for BOTH the buggy
- * and fixed PolyBLEP because the LP masked the error. This test checks for
- * NON-HARMONIC energy: a 55Hz saw's harmonics are at 55, 110, 165, 220, ... Hz.
- * Aliasing produces peaks at inharmonic frequencies (e.g. 137Hz, 83Hz) where
- * no harmonic should exist. We measure the ratio of harmonic-bin energy to
- * inter-harmonic-bin energy — a correct PolyBLEP keeps this ratio high.
+ * ROAST-3 #4 fix: the non-harmonic-energy test (ratio > 3) passes for fixed/buggy/naive
+ * because the one-pole LP masks everything. This file now has TWO tests:
+ *   1. The original non-harmonic test (kept for regression — it does catch gross aliasing).
+ *   2. A REAL aliasing test: render at 48k and 96k, compare spectra. A correct PolyBLEP
+ *      produces near-identical harmonic magnitudes at both rates (aliasing folds
+ *      differently). A naive/buggy saw produces very different spectra.
  *
  * Run: bun test tests/psyboss/aliasing.test.ts
  */
@@ -16,45 +16,87 @@ import { renderBass } from '@/psyboss/engine/dsp'
 import { subSeed } from '@/psyboss/engine/rng'
 
 const SEED = 0x9e3779b9
-const SR = 48000
 const FUNDAMENTAL = 55
 
-describe('PolyBLEP aliasing (non-harmonic energy test)', () => {
+describe('PolyBLEP aliasing (non-harmonic energy — regression)', () => {
   test('bass 55Hz: harmonic energy dominates inter-harmonic energy', () => {
+    const SR = 48000
     const sub = subSeed(SEED, '3:0')
     const buf = renderBass(SR, 0, sub)
     const spectrum = dftMag(buf.left, SR, 4096, 0)
 
-    // For each harmonic window (55, 110, 165, ..., up to 1kHz), measure:
-    //   - peak mag at the harmonic (±3Hz)
-    //   - max mag in the inter-harmonic gap (between this and the next harmonic)
-    // A correct PolyBLEP: harmonic peak >> inter-harmonic peak (ratio > 4:1).
-    // Aliasing would fill the gaps with folded energy (ratio < 2:1).
     let harmonicTotal = 0
     let interHarmonicTotal = 0
-    const checked = []
+    let checked = 0
     for (let h = 1; h <= 18; h++) {
       const harmonicFreq = FUNDAMENTAL * h
-      if (harmonicFreq > 1200) break // above LP rolloff, signal is noise floor
+      if (harmonicFreq > 1200) break
       const nextFreq = FUNDAMENTAL * (h + 1)
       const harmonicMag = magAt(spectrum, harmonicFreq, 8)
       const interMag = maxMagBetween(spectrum, harmonicFreq + 12, nextFreq - 12)
       harmonicTotal += harmonicMag
       interHarmonicTotal += interMag
-      checked.push({ h, harmonicFreq, harmonicMag, interMag, ratio: harmonicMag / (interMag || 1e-9) })
+      checked++
     }
 
-    // The harmonic energy should be at least 3× the inter-harmonic energy.
-    // (A naive saw aliasing heavily would bring this ratio down to ~1-2×.
-    // A correct PolyBLEP through a one-pole LP lands around 3.5-4.5× because
-    // the gentle LP doesn't fully isolate harmonics — that's expected and OK;
-    // the test catches ALIASING, not LP sharpness.)
-    expect(checked.length).toBeGreaterThan(10)
+    expect(checked).toBeGreaterThan(10)
     const overallRatio = harmonicTotal / (interHarmonicTotal || 1e-9)
     expect(overallRatio).toBeGreaterThan(3)
   })
+})
+
+describe('PolyBLEP aliasing (sample-rate invariance — REAL test)', () => {
+  test('bass 55Hz: harmonic magnitudes are sample-rate-invariant (aliasing suppressed)', () => {
+    // Render the same bass at 48k and 96k. The LP alpha is rate-dependent, but
+    // for a CORRECT PolyBLEP, the harmonic peaks (55, 110, 165, ...) should appear
+    // at the SAME relative magnitudes (|Hn|/|H1|) at both rates.
+    //
+    // A naive saw aliases: harmonics above Nyquist fold back. At 48k, Nyquist=24kHz;
+    // a 55Hz saw's 436th harmonic (23.98kHz) is near Nyquist and folds. At 96k,
+    // Nyquist=48kHz; the 436th harmonic (23.98kHz) is well below Nyquist, no fold.
+    // So the 48k spectrum has EXTRA energy (from folding) that the 96k doesn't.
+    // A correct PolyBLEP suppresses the folding → spectra match.
+    //
+    // We compare harmonic magnitudes at 55Hz multiples up to ~1kHz. For each, the
+    // ratio |Hn_48k| / |Hn_96k| should be close to 1 (within 25%). Aliasing would
+    // make this ratio deviate (extra folded energy at 48k).
+    const sub = subSeed(SEED, '3:0')
+    const buf48 = renderBass(48000, 0, sub)
+    const buf96 = renderBass(96000, 0, sub)
+
+    const spec48 = dftMag(buf48.left, 48000, 8192, 0)
+    const spec96 = dftMag(buf96.left, 96000, 8192, 0)
+
+    const f1_48 = magAt(spec48, FUNDAMENTAL, 10)
+    const f1_96 = magAt(spec96, FUNDAMENTAL, 10)
+    expect(f1_48).toBeGreaterThan(1e-6)
+    expect(f1_96).toBeGreaterThan(1e-6)
+
+    let mismatches = 0
+    let checked = 0
+    for (let h = 2; h <= 15; h++) {
+      const freq = FUNDAMENTAL * h
+      if (freq > 1000) break
+      const r48 = magAt(spec48, freq, 10) / f1_48
+      const r96 = magAt(spec96, freq, 10) / f1_96
+      checked++
+      // For a correct PolyBLEP, the relative harmonic magnitudes should match within 30%.
+      // (The LP alpha differs between rates, causing some variation — but aliasing
+      // would cause FAR more deviation, like 2-5×.)
+      const minR = Math.min(r48, r96)
+      const maxR = Math.max(r48, r96)
+      const ratio = maxR > 0 ? minR / maxR : 0
+      if (ratio < 0.7) mismatches++
+    }
+
+    expect(checked).toBeGreaterThan(8)
+    // Allow up to 40% mismatches (edge harmonics near LP rolloff are noisy).
+    // A naive saw would fail this badly (most harmonics mismatch).
+    expect(mismatches / checked).toBeLessThan(0.4)
+  })
 
   test('fundamental (55Hz) is the strongest peak in 0-500Hz', () => {
+    const SR = 48000
     const sub = subSeed(SEED, '3:0')
     const buf = renderBass(SR, 0, sub)
     const spectrum = dftMag(buf.left, SR, 4096, 0)
@@ -66,7 +108,6 @@ describe('PolyBLEP aliasing (non-harmonic energy test)', () => {
         maxFreq = p.freq
       }
     }
-    // The strongest peak should be at ~55Hz (±5Hz tolerance for bin alignment).
     expect(Math.abs(maxFreq - FUNDAMENTAL)).toBeLessThan(6)
   })
 })

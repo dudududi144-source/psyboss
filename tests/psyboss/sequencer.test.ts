@@ -107,14 +107,20 @@ describe('collectScheduledSteps', () => {
     expect(scheduled.length).toBe(8)
   })
 
-  test('probability condition is deterministic given the same seed', () => {
+  test('probability condition is deterministic given the same seed (deep equality)', () => {
+    // ROAST-3 #L fix: was only checking s1.length === s2.length (weak).
+    // Now checks deep equality on the full scheduled-step array.
     let p = createPattern(SEED, NUM_TRACKS)
     p = toggleStep(p, 0, 0)
     p = setStepCondition(p, 0, 0, { kind: 'probability', p: 0.5 })
+    p = toggleStep(p, 0, 4)
+    p = setStepCondition(p, 0, 4, { kind: 'probability', p: 0.25 })
+    p = toggleStep(p, 2, 8)
+    p = setStepCondition(p, 2, 8, { kind: 'fill', everyBars: 4 })
     const s1 = collectScheduledSteps(p, 0, STEPS_PER_BAR, 0, 0.1, 0, SEED)
     const s2 = collectScheduledSteps(p, 0, STEPS_PER_BAR, 0, 0.1, 0, SEED)
-    // Same seed → same LFSR state → same decision.
-    expect(s1.length).toBe(s2.length)
+    // Same seed → same LFSR state → same decisions → identical scheduled steps.
+    expect(s1).toEqual(s2)
   })
 
   test('fill condition: fires on bar 0 and 4, not on bar 1-3', () => {

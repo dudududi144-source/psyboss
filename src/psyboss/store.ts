@@ -14,6 +14,7 @@ import {
   type TransportState,
   type MeterState,
 } from './engine/audio-engine'
+import type { LoadedSample, SampleMetadata } from './engine/sample-library'
 import {
   createPattern,
   toggleStep,
@@ -42,6 +43,8 @@ export interface PsyBossState {
   rendering: boolean
   renderError: string | null
   lastRenderInfo: string | null
+  samples: LoadedSample[]
+  sampleError: string | null
   init: () => Promise<void>
   togglePlay: () => void
   setBpm: (bpm: number) => void
@@ -49,6 +52,9 @@ export interface PsyBossState {
   setPatternEnabled: (on: boolean) => void
   renderMaster: (bars: number) => Promise<void>
   renderStems: (bars: number) => Promise<void>
+  loadSample: (file: File, metadata: SampleMetadata) => Promise<void>
+  refreshSamples: () => void
+  removeSample: (id: string) => void
 }
 
 // ── Meter state ───────────────────────────────────────────────────────────────
@@ -88,6 +94,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   rendering: false,
   renderError: null,
   lastRenderInfo: null,
+  samples: [],
+  sampleError: null,
 
   init: async () => {
     if (get().ready) return
@@ -168,6 +176,31 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
       set({ lastRenderInfo: `stems: ${result.stems.size} tracks, ${bars} bars each`, rendering: false })
     } catch (e) {
       set({ renderError: e instanceof Error ? e.message : String(e), rendering: false })
+    }
+  },
+
+  loadSample: async (file: File, metadata: SampleMetadata) => {
+    if (!engine) return
+    set({ sampleError: null })
+    try {
+      await engine.loadSample(file, metadata)
+      set({ samples: engine.listSamples() })
+    } catch (e) {
+      set({ sampleError: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  refreshSamples: () => {
+    if (!engine) return
+    set({ samples: engine.listSamples() })
+  },
+
+  removeSample: (id: string) => {
+    if (!engine) return
+    const lib = engine.getSampleLibrary()
+    if (lib) {
+      lib.remove(id)
+      set({ samples: engine.listSamples() })
     }
   },
 }))
