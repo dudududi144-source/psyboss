@@ -104,6 +104,7 @@ class PsyBossClockProcessor extends AudioWorkletProcessor {
       const a = Math.abs(left)
       const b = Math.abs(right)
       this.sumSq += left * left + right * right
+      this.sampleCount += 2  // ROAST-2 #1 fix: was never incremented → RMS always 0 = -∞
       const instPeak = a > b ? a : b
       if (instPeak > this.peak) this.peak = instPeak
     }

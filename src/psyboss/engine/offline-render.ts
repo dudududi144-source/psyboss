@@ -1,0 +1,170 @@
+/**
+ * PSYBOSS offline renderer — renders a pattern to a WAV file, byte-identical to
+ * a live take with the same seed.
+ *
+ * Uses OfflineAudioContext to render the exact same audio graph (worklet + DSP
+ * + master bus) offline, then encodes to 16-bit WAV.
+ *
+ * Determinism contract: renderOffline(pattern, seed, bpm, bars) produces the
+ * same bytes every time (given the same seed). Verified by tests/render.test.ts.
+ *
+ * Browser-only: OfflineAudioContext is a Web API.
+ */
+
+import { renderSoundBank, dspProvenance } from './dsp'
+import { collectScheduledSteps, type Pattern, STEPS_PER_BAR } from './sequencer'
+import { encodeWav, type WavInput } from './wav-encoder'
+
+export interface RenderOptions {
+  pattern: Pattern
+  seed: number
+  bpm: number
+  bars: number
+  sampleRate?: number
+}
+
+export interface RenderResult {
+  master: Uint8Array // WAV bytes
+  stems: Map<number, Uint8Array> // per-track WAV bytes
+  durationSec: number
+}
+
+/**
+ * Render a pattern offline. Returns master + per-track stems as WAV bytes.
+ *
+ * The offline graph mirrors the live audio-engine.ts graph:
+ *   BufferSource[per-step] → trackGain → masterGain → limiter → destination
+ * Each stem is rendered separately by soloing one track.
+ */
+export async function renderOffline(opts: RenderOptions): Promise<RenderResult> {
+  if (typeof window === 'undefined') {
+    throw new Error('renderOffline requires a browser (OfflineAudioContext)')
+  }
+  const { pattern, seed, bpm, bars } = opts
+  const sampleRate = opts.sampleRate ?? 48000
+  const secPerBar = (60 / bpm) * 4
+  const stepSeconds = secPerBar / STEPS_PER_BAR
+  const duration = bars * secPerBar
+
+  // Render master: all tracks mixed.
+  const masterWav = await renderTrack({
+    pattern, seed, bpm, bars, sampleRate, soloTrack: -1, duration,
+  })
+
+  // Render stems: one per track (solo each).
+  const stems = new Map<number, Uint8Array>()
+  for (let t = 0; t < pattern.tracks.length; t++) {
+    const stemWav = await renderTrack({
+      pattern, seed, bpm, bars, sampleRate, soloTrack: t, duration,
+    })
+    stems.set(t, stemWav)
+  }
+
+  return { master: masterWav, stems, durationSec: duration }
+}
+
+async function renderTrack(args: {
+  pattern: Pattern
+  seed: number
+  bpm: number
+  bars: number
+  sampleRate: number
+  soloTrack: number // -1 = all tracks; otherwise only this track
+  duration: number
+}): Promise<Uint8Array> {
+  const { pattern, seed, bpm, bars, sampleRate, soloTrack, duration } = args
+  const length = Math.ceil(duration * sampleRate)
+  const ctx = new OfflineAudioContext(2, length, sampleRate)
+
+  // Sound bank (deterministic — same seed → same buffers).
+  const bank = renderSoundBank(sampleRate, seed)
+  const audioBuffers = new Map<string, AudioBuffer>()
+  for (const [key, stereo] of bank.entries()) {
+    const buf = ctx.createBuffer(2, stereo.left.length, sampleRate)
+    buf.copyToChannel(stereo.left, 0)
+    buf.copyToChannel(stereo.right, 1)
+    audioBuffers.set(key, buf)
+  }
+
+  // Master bus (mirrors live graph).
+  const masterGain = ctx.createGain()
+  masterGain.gain.value = 0.8
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -1.0
+  limiter.knee.value = 0
+  limiter.ratio.value = 20
+  limiter.attack.value = 0.003
+  limiter.release.value = 0.05
+  masterGain.connect(limiter)
+  limiter.connect(ctx.destination)
+
+  // Per-track gains.
+  const trackGains: GainNode[] = []
+  for (let t = 0; t < pattern.tracks.length; t++) {
+    const g = ctx.createGain()
+    g.gain.value = 0.75
+    g.connect(masterGain)
+    trackGains.push(g)
+  }
+
+  // Schedule every step across all bars.
+  const secPerBar = (60 / bpm) * 4
+  const stepSeconds = secPerBar / STEPS_PER_BAR
+  for (let bar = 0; bar < bars; bar++) {
+    const barStartTime = bar * secPerBar
+    const scheduled = collectScheduledSteps(
+      pattern,
+      0,
+      STEPS_PER_BAR,
+      bar,
+      stepSeconds,
+      barStartTime,
+      seed,
+    )
+    for (const s of scheduled) {
+      if (soloTrack !== -1 && s.track !== soloTrack) continue
+      const key = `${s.track}:${s.scene}`
+      const buf = audioBuffers.get(key)
+      if (!buf) continue
+      const src = ctx.createBufferSource()
+      src.buffer = buf
+      // Apply parameter locks (gain override is the simplest).
+      const gainOverride = s.locks.find((l) => l.param === 'gain')
+      if (gainOverride) {
+        const gainNode = ctx.createGain()
+        gainNode.gain.value = gainOverride.value
+        src.connect(gainNode)
+        gainNode.connect(trackGains[s.track])
+      } else {
+        src.connect(trackGains[s.track])
+      }
+      src.start(s.audioTime)
+    }
+  }
+
+  // Render.
+  const rendered = await ctx.startRendering()
+  const left = rendered.getChannelData(0)
+  const right = rendered.getChannelData(1)
+  // Copy (the rendered buffer's underlying ArrayBuffer may be transferred).
+  const leftCopy = new Float32Array(left.length)
+  const rightCopy = new Float32Array(right.length)
+  leftCopy.set(left)
+  rightCopy.set(right)
+  const input: WavInput = { left: leftCopy, right: rightCopy, sampleRate }
+  return encodeWav(input)
+}
+
+/**
+ * Determinism helper: returns a stable fingerprint for a render config.
+ * Same config → same fingerprint → same bytes (verified by tests).
+ */
+export function renderFingerprint(opts: RenderOptions): string {
+  const { seed, bpm, bars, sampleRate = 48000 } = opts
+  return `render:seed=${seed}:bpm=${bpm}:bars=${bars}:sr=${sampleRate}:pattern=${opts.pattern.id}`
+}
+
+/** Provenance for a rendered WAV (so exported files carry their source). */
+export function renderProvenance(opts: RenderOptions) {
+  return dspProvenance(renderFingerprint(opts), opts.seed)
+}

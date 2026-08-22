@@ -28,6 +28,7 @@ import {
   type SampleRef,
 } from '@/psybus/types'
 import { renderSoundBank, dspProvenance } from './dsp'
+import { collectScheduledSteps, type Pattern, STEPS_PER_BAR } from './sequencer'
 
 export interface TransportState {
   bpm: number
@@ -77,10 +78,11 @@ export class AudioEngine {
   private transportListeners = new Set<TransportListener>()
   private meterListeners = new Set<MeterListener>()
 
-  private armedTrigs: Array<{ track: number; scene: number }> = []
+  private armedTrigs: Array<{ track: number; scene: number; immediate: boolean }> = []
   private activeVoices: Set<AudioBufferSourceNode> = new Set()
   private workletReady = false
   private busSubscribed = false
+  private currentPattern: Pattern | null = null
 
   constructor(seed: number = DEFAULT_SEED) {
     this.seed = seed
@@ -181,7 +183,10 @@ export class AudioEngine {
             const trackNum = Number(e.payload.track.replace('track-', ''))
             const sceneNum = Number(e.payload.scene.replace('scene-', ''))
             if (!Number.isNaN(trackNum) && !Number.isNaN(sceneNum)) {
-              this.armTrig(trackNum, sceneNum)
+              // If transport was stopped when the trig arrived, mark it immediate so
+              // flushArmedTrigs fires it NOW (not at the next bar boundary, which
+              // would be 1.67s of silence). ROAST-2 #3 fix.
+              this.armTrig(trackNum, sceneNum, !this.transport.playing)
             }
           }
         },
@@ -249,33 +254,8 @@ export class AudioEngine {
     }
   }
 
-  private armTrig(track: number, scene: number) {
-    this.armedTrigs.push({ track, scene })
-  }
-
-  /**
-   * Schedule armed trigs at the NEXT bar boundary in audio-context time.
-   *
-   * The worklet posts `audioTime` = the audio-context time at the bar boundary it
-   * just crossed. By the time the main thread receives the message (~2-5ms later),
-   * that audioTime is slightly in the past. So we schedule at the FOLLOWING bar
-   * boundary = audioTime + secPerBar. That's still "bar-quantized" (fires at a bar
-   * boundary), and lands ahead of the audio thread (no late scheduling).
-   *
-   * This replaces the Scope-1 `currentTime + 0.002` hack (which was 7ms late and
-   * not bar-quantized). See ROAST-1 §3.
-   */
-  private flushArmedTrigs() {
-    if (this.armedTrigs.length === 0 || !this.ctx) return
-    const secPerBar = (60 / this.transport.bpm) * BEATS_PER_BAR
-    // audioTime is the bar boundary the worklet just crossed; schedule one bar ahead.
-    const when = this.transport.audioTime + secPerBar
-    // If that's already in the past (shouldn't happen, but guard), fall back to now+1quantum.
-    const safeWhen = Math.max(when, this.ctx.currentTime + 128 / this.ctx.sampleRate)
-    for (const trig of this.armedTrigs) {
-      this.scheduleVoice(trig.track, trig.scene, safeWhen)
-    }
-    this.armedTrigs = []
+  private armTrig(track: number, scene: number, immediate = false) {
+    this.armedTrigs.push({ track, scene, immediate })
   }
 
   private scheduleVoice(track: number, scene: number, when: number) {
@@ -333,6 +313,66 @@ export class AudioEngine {
     this.clockNode.port.postMessage({ kind: 'setBpm', bpm })
     this.transport = { ...this.transport, bpm }
     this.emitTransport()
+  }
+
+  /** Set the current pattern for sequencer playback. null = scene-matrix only. */
+  setPattern(pattern: Pattern | null): void {
+    this.currentPattern = pattern
+  }
+
+  getPattern(): Pattern | null {
+    return this.currentPattern
+  }
+
+  /**
+   * Schedule armed trigs + pattern steps for the next bar.
+   *
+   * - Immediate trigs (transport was stopped when armed): fire NOW.
+   * - Quantized trigs + pattern steps: schedule at the NEXT bar boundary
+   *   = audioTime + secPerBar. Pattern steps are collected via collectScheduledSteps
+   *   (deterministic, LFSR-seeded conditions evaluated per-bar).
+   */
+  private flushArmedTrigs() {
+    if (!this.ctx) return
+    if (this.armedTrigs.length === 0 && !this.currentPattern) return
+    const secPerBar = (60 / this.transport.bpm) * BEATS_PER_BAR
+    const stepSeconds = secPerBar / STEPS_PER_BAR
+    const now = this.ctx.currentTime
+
+    // Immediate trigs (from scene-matrix clicks while stopped).
+    for (const trig of this.armedTrigs) {
+      if (!trig.immediate) continue
+      const safeWhen = Math.max(now + 0.005, now + 128 / this.ctx.sampleRate)
+      this.scheduleVoice(trig.track, trig.scene, safeWhen)
+    }
+
+    // Quantized: schedule at the next bar boundary.
+    const nextBarTime = this.transport.audioTime + secPerBar
+    const safeNextBar = Math.max(nextBarTime, now + 128 / this.ctx.sampleRate)
+
+    // Quantized armed trigs (scene-matrix clicks while playing).
+    for (const trig of this.armedTrigs) {
+      if (trig.immediate) continue
+      this.scheduleVoice(trig.track, trig.scene, safeNextBar)
+    }
+    this.armedTrigs = []
+
+    // Pattern playback: collect all steps for the NEXT bar and schedule them.
+    if (this.currentPattern) {
+      const nextBar = this.transport.bar + 1
+      const scheduled = collectScheduledSteps(
+        this.currentPattern,
+        0,
+        STEPS_PER_BAR,
+        nextBar,
+        stepSeconds,
+        nextBarTime,
+        this.seed,
+      )
+      for (const s of scheduled) {
+        this.scheduleVoice(s.track, s.scene, s.audioTime)
+      }
+    }
   }
 }
 

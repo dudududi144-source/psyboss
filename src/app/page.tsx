@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { usePsyBoss, useMeter } from '@/psyboss/store'
+import { useEffect, useState, useCallback, memo } from 'react'
+import { usePsyBoss, useMeter, usePattern, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
+import type { TrigCondition } from '@/psyboss/engine/lfsr'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
 import { Card } from '@/components/ui/card'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -17,7 +20,11 @@ function dbToPct(db: number): number {
   return ((clamped + 60) / 60) * 100
 }
 
-function MeterBar({ db, label, accent }: { db: number; label: string; accent: string }) {
+// MeterBar subscribes DIRECTLY to the meter store via selector (ROAST-2 #4 fix:
+// was receiving db as a prop from Home, which re-rendered 20/sec from meter posts
+// and dragged the whole scene matrix with it). Now only MeterBar re-renders.
+function MeterBar({ label, accent }: { label: string; accent: string }) {
+  const db = useMeter(label === 'PK' ? (s) => s.peak : (s) => s.rms)
   const pct = dbToPct(db)
   return (
     <div className="flex items-center gap-2 min-w-[100px] md:min-w-[120px]">
@@ -27,7 +34,6 @@ function MeterBar({ db, label, accent }: { db: number; label: string; accent: st
           className={`absolute inset-y-0 left-0 ${accent} transition-[width] duration-75`}
           style={{ width: `${pct}%` }}
         />
-        {/* limiter threshold tick at -1 dBFS (was misleading -6dB in Scope 1) */}
         <div className="absolute inset-y-0 left-[98.3%] w-px bg-red-500/70" title="Limiter -1 dBFS" />
       </div>
       <span className="text-[10px] font-mono text-muted-foreground w-10 text-right tabular-nums">
@@ -37,7 +43,9 @@ function MeterBar({ db, label, accent }: { db: number; label: string; accent: st
   )
 }
 
-function SceneCell({
+// memo'd so it only re-renders when its own props change (ROAST-2 #4 fix:
+// without memo, every meter post (20/sec) re-rendered all 16 cells).
+const SceneCell = memo(function SceneCell({
   track,
   scene,
   armed,
@@ -76,25 +84,241 @@ function SceneCell({
       )}
     </button>
   )
+})
+
+// ── Step Sequencer component (Scope 3) ───────────────────────────────────────
+function StepSequencer() {
+  const pattern = usePattern((s) => s.pattern)
+  const selectedTrack = usePattern((s) => s.selectedTrack)
+  const toggleStep = usePattern((s) => s.toggleStep)
+  const setStepScene = usePattern((s) => s.setStepScene)
+  const setStepCondition = usePattern((s) => s.setStepCondition)
+  const setSelectedTrack = usePattern((s) => s.setSelectedTrack)
+  const clearPattern = usePattern((s) => s.clearPattern)
+  const patternEnabled = usePsyBoss((s) => s.patternEnabled)
+  const setPatternEnabled = usePsyBoss((s) => s.setPatternEnabled)
+  const beat = usePsyBoss((s) => s.beat)
+
+  const currentStep = Math.floor(beat * 4) % STEPS_PER_BAR // 16th position
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-3 md:p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            Step Sequencer
+          </h3>
+          <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+            16 steps per bar · per-step locks + conditions · LFSR-seeded (deterministic)
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="font-mono text-[10px] gap-1">
+            <span className={patternEnabled ? 'text-emerald-400' : 'text-muted-foreground'}>
+              {patternEnabled ? '● LIVE' : '○ OFF'}
+            </span>
+          </Badge>
+          <Switch checked={patternEnabled} onCheckedChange={setPatternEnabled} aria-label="Enable pattern playback" />
+          <Button size="sm" variant="ghost" onClick={clearPattern} className="h-7 px-2 text-[10px] font-mono">
+            <Eraser className="w-3 h-3 mr-1" />
+            Clear
+          </Button>
+        </div>
+      </div>
+
+      {/* Track selector */}
+      <div className="flex gap-1 mb-3 flex-wrap">
+        {TRACKS.map((name, t) => (
+          <button
+            key={t}
+            onClick={() => setSelectedTrack(t)}
+            className={`px-3 py-1 rounded-md font-mono text-xs font-bold transition-colors ${
+              selectedTrack === t
+                ? 'bg-emerald-500 text-black'
+                : 'bg-foreground/5 hover:bg-foreground/10 text-foreground/70'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+
+      {/* Step grid */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[600px]">
+          {/* Step numbers */}
+          <div className="grid grid-cols-16 gap-1 mb-1" style={{ gridTemplateColumns: 'repeat(16, 1fr)' }}>
+            {Array.from({ length: STEPS_PER_BAR }, (_, i) => (
+              <div
+                key={i}
+                className={`text-center text-[9px] font-mono ${
+                  currentStep === i && patternEnabled
+                    ? 'text-emerald-400 font-bold'
+                    : i % 4 === 0
+                    ? 'text-muted-foreground'
+                    : 'text-muted-foreground/40'
+                }`}
+              >
+                {i + 1}
+              </div>
+            ))}
+          </div>
+          {/* Steps */}
+          <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(16, 1fr)' }}>
+            {pattern.tracks[selectedTrack]?.map((step, i) => (
+              <button
+                key={i}
+                onClick={() => toggleStep(i)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  // Right-click: cycle condition
+                  const conds: TrigCondition[] = [
+                    { kind: 'always' },
+                    { kind: 'probability', p: 0.5 },
+                    { kind: 'probability', p: 0.25 },
+                    { kind: 'fill', everyBars: 4 },
+                    { kind: 'not-fill', everyBars: 4 },
+                  ]
+                  const next = conds[(conds.findIndex((c) => JSON.stringify(c) === JSON.stringify(step.condition)) + 1) % conds.length]
+                  setStepCondition(i, next)
+                }}
+                aria-label={`Step ${i + 1}`}
+                className={`
+                  relative aspect-square rounded border transition-all
+                  ${step.active
+                    ? 'bg-gradient-to-br from-emerald-500/40 to-emerald-700/30 border-emerald-500/60'
+                    : 'bg-foreground/5 border-border/40 hover:border-border/80'
+                  }
+                  ${currentStep === i && patternEnabled ? 'ring-2 ring-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : ''}
+                  ${i % 4 === 0 ? 'border-l-2 border-l-emerald-500/30' : ''}
+                `}
+                title={`Step ${i + 1} · ${step.condition.kind} · scene ${step.scene + 1}${step.locks.length ? ` · ${step.locks.length} locks` : ''}`}
+              >
+                {step.active && (
+                  <span className="text-[8px] font-mono font-bold text-foreground/60 absolute inset-0 flex items-center justify-center">
+                    {step.scene + 1}
+                  </span>
+                )}
+                {step.condition.kind !== 'always' && step.active && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400" title={step.condition.kind} />
+                )}
+                {step.locks.length > 0 && (
+                  <span className="absolute -bottom-1 -left-1 w-2 h-2 rounded-full bg-fuchsia-400" title={`${step.locks.length} param locks`} />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 text-[10px] font-mono text-muted-foreground/60">
+            Left-click: toggle · Right-click: cycle condition (always → 50% → 25% → fill/4 → not-fill/4)
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── Render & Export panel (Scope 3) ──────────────────────────────────────────
+function RenderPanel() {
+  const rendering = usePsyBoss((s) => s.rendering)
+  const renderError = usePsyBoss((s) => s.renderError)
+  const lastRenderInfo = usePsyBoss((s) => s.lastRenderInfo)
+  const renderMaster = usePsyBoss((s) => s.renderMaster)
+  const renderStems = usePsyBoss((s) => s.renderStems)
+  const bpm = usePsyBoss((s) => s.bpm)
+  const patternEnabled = usePsyBoss((s) => s.patternEnabled)
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <FileAudio className="w-4 h-4 text-emerald-400" />
+        <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          Offline Render
+        </h3>
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 mb-3">
+        Renders the current pattern to 16-bit WAV via <span className="font-mono text-emerald-400">OfflineAudioContext</span>.
+        Deterministic: same seed → byte-identical output. Master = all tracks mixed; Stems = per-track.
+      </p>
+
+      {!patternEnabled && (
+        <div className="mb-3 p-2 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-[11px] font-mono">
+          ⚠ Pattern playback is OFF — enable it in the Step Sequencer tab to render the pattern.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <Button
+          onClick={() => renderMaster(4)}
+          disabled={rendering}
+          className="bg-emerald-500 hover:bg-emerald-400 text-black font-mono"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Master · 4 bars
+        </Button>
+        <Button
+          onClick={() => renderMaster(8)}
+          disabled={rendering}
+          variant="outline"
+          className="font-mono"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Master · 8 bars
+        </Button>
+        <Button
+          onClick={() => renderStems(4)}
+          disabled={rendering}
+          variant="outline"
+          className="font-mono"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Stems · 4 bars
+        </Button>
+        <Button
+          onClick={() => renderStems(8)}
+          disabled={rendering}
+          variant="outline"
+          className="font-mono"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Stems · 8 bars
+        </Button>
+      </div>
+
+      {rendering && (
+        <div className="text-[11px] font-mono text-emerald-400 animate-pulse">
+          Rendering... (offline, no real-time wait)
+        </div>
+      )}
+      {renderError && (
+        <div className="text-[11px] font-mono text-destructive">
+          Error: {renderError}
+        </div>
+      )}
+      {lastRenderInfo && !rendering && (
+        <div className="text-[11px] font-mono text-muted-foreground">
+          ✓ {lastRenderInfo} · @ {bpm} BPM
+        </div>
+      )}
+    </Card>
+  )
 }
 
 export default function Home() {
-  const {
-    ready,
-    initError,
-    bpm,
-    beat,
-    bar,
-    phase,
-    playing,
-    lastFired,
-    init,
-    togglePlay,
-    setBpm,
-    trig,
-  } = usePsyBoss()
-  // Separate selector subscription → meter updates don't re-render the scene matrix.
-  const { rms, peak } = useMeter()
+  // Selectors: each field pulled individually so a change to one doesn't re-render
+  // components that only depend on another. (ROAST-2 #4 fix: was destructuring the
+  // whole store → any state change re-rendered everything 20/sec from meter posts.)
+  const ready = usePsyBoss((s) => s.ready)
+  const initError = usePsyBoss((s) => s.initError)
+  const bpm = usePsyBoss((s) => s.bpm)
+  const beat = usePsyBoss((s) => s.beat)
+  const bar = usePsyBoss((s) => s.bar)
+  const phase = usePsyBoss((s) => s.phase)
+  const playing = usePsyBoss((s) => s.playing)
+  const lastFired = usePsyBoss((s) => s.lastFired)
+  const init = usePsyBoss((s) => s.init)
+  const togglePlay = usePsyBoss((s) => s.togglePlay)
+  const setBpm = usePsyBoss((s) => s.setBpm)
+  const trig = usePsyBoss((s) => s.trig)
 
   const [booted, setBooted] = useState(false)
 
@@ -225,8 +449,8 @@ export default function Home() {
 
           {/* Master meter — visible on ALL sizes (was hidden on mobile in Scope 1) */}
           <div className="flex flex-col gap-1 flex-1 min-w-[140px] md:min-w-[220px]">
-            <MeterBar db={peak} label="PK" accent="bg-gradient-to-r from-emerald-500 to-amber-400" />
-            <MeterBar db={rms} label="RMS" accent="bg-gradient-to-r from-emerald-600 to-emerald-400" />
+            <MeterBar label="PK" accent="bg-gradient-to-r from-emerald-500 to-amber-400" />
+            <MeterBar label="RMS" accent="bg-gradient-to-r from-emerald-600 to-emerald-400" />
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -400,6 +624,30 @@ export default function Home() {
                 </div>
               </Card>
             </section>
+
+            {/* ── STEP SEQUENCER + RENDER (Scope 3) ── */}
+            <Tabs defaultValue="sequencer" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 bg-card/40">
+                <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Music2 className="w-3.5 h-3.5 mr-1.5" />
+                  Step Sequencer
+                </TabsTrigger>
+                <TabsTrigger value="render" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <FileAudio className="w-3.5 h-3.5 mr-1.5" />
+                  Render & Export
+                </TabsTrigger>
+              </TabsList>
+
+              {/* ── Step Sequencer tab ── */}
+              <TabsContent value="sequencer" className="mt-3">
+                <StepSequencer />
+              </TabsContent>
+
+              {/* ── Render tab ── */}
+              <TabsContent value="render" className="mt-3">
+                <RenderPanel />
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </main>

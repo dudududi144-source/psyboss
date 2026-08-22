@@ -40,20 +40,31 @@ function envAR(t: number, attack: number, release: number, peak = 1): number {
  * worklet does (audited worklog.md AUDIT-B §PsySynthPro). Without it, a 55Hz saw
  * aliases to the 436th harmonic at 48kHz.
  *
+ * ROAST-2 #3 fix: the `t < dt` branch had a sign error (returned -(1-x)² instead
+ * of +(1-x)²), making the correction WORSEN the discontinuity instead of smoothing
+ * it. The LP masked the error so the band-ratio test passed either way. Now fixed
+ * and verified by a real aliasing test (render at 48k vs 96k, compare spectrum).
+ *
+ * Math: for a rising saw (2t-1) with a -2 jump at t=0:
+ *   - after the jump (t<dt): naive is too low → add POSITIVE (1-x)²
+ *   - before the jump (t>1-dt): naive is too high → add NEGATIVE -(1+|x|)²
+ *
  * @param t      phase in [0,1)
  * @param inc    phase increment per sample (= freq/sampleRate)
  * @returns correction to ADD to the naive saw value
  */
 function polyblepSaw(t: number, inc: number): number {
-  // saw has one discontinuity at t=0 (rising from -1 to +1)
-  let dt = inc
+  const dt = inc
   if (t < dt) {
+    // just after wrap: naive saw is -1, bandlimited is higher → positive correction
     const x = t / dt
-    return x + x - x * x - 1
+    const d = 1 - x
+    return d * d // (1-x)², positive, 1→0
   } else if (t > 1 - dt) {
-    const x = (t - 1) / dt // negative side
-    const xa = Math.abs(x)
-    return xa + xa - xa * xa - 1
+    // just before wrap: naive saw is +1, bandlimited is lower → negative correction
+    const x = (t - 1) / dt // negative
+    const d = 1 + x // = (dt + t - 1)/dt, in (0,1]
+    return -(d * d) // -(1+x)², negative, 0→-1
   }
   return 0
 }
