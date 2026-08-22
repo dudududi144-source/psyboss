@@ -171,8 +171,16 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     set({ rendering: true, renderError: null })
     try {
       const pattern = usePattern.getState().pattern
+      // ROAST-6 #4 fix: pass loaded samples map so steps with sampleRef render correctly.
+      const lib = engine.getSampleLibrary()
+      const samplesMap = new Map<string, AudioBuffer>()
+      if (lib) {
+        for (const s of lib.list()) {
+          samplesMap.set(s.id, s.buffer)
+        }
+      }
       const result = await renderOffline({
-        pattern, seed: SEED, bpm: get().bpm, bars,
+        pattern, seed: SEED, bpm: get().bpm, bars, samples: samplesMap,
       })
       downloadWav(result.master, `psyboss-master-${bars}bar.wav`)
       set({ lastRenderInfo: `master: ${bars} bars, ${(result.durationSec).toFixed(1)}s, ${result.master.length} bytes`, rendering: false })
@@ -186,8 +194,16 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     set({ rendering: true, renderError: null })
     try {
       const pattern = usePattern.getState().pattern
+      // ROAST-6 #4 fix: pass loaded samples map.
+      const lib = engine.getSampleLibrary()
+      const samplesMap = new Map<string, AudioBuffer>()
+      if (lib) {
+        for (const s of lib.list()) {
+          samplesMap.set(s.id, s.buffer)
+        }
+      }
       const result = await renderOffline({
-        pattern, seed: SEED, bpm: get().bpm, bars,
+        pattern, seed: SEED, bpm: get().bpm, bars, samples: samplesMap,
       })
       for (const [track, bytes] of result.stems) {
         downloadWav(bytes, `psyboss-stem-${track}-${bars}bar.wav`)
@@ -261,16 +277,15 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
       // Restore BPM + pattern enabled
       get().setBpm(project.bpm)
       get().setPatternEnabled(project.patternEnabled)
-      // Restore pattern steps
-      const { createPattern } = await import('./engine/sequencer')
+      // Restore pattern steps (ROAST-6 #5 fix: use static imports, not dynamic)
       let pattern = createPattern(SEED, NUM_TRACKS)
       for (const s of project.steps) {
         if (s.active) {
-          pattern = (await import('./engine/sequencer')).toggleStep(pattern, s.track, s.step)
+          pattern = toggleStep(pattern, s.track, s.step)
         }
-        pattern = (await import('./engine/sequencer')).setStepScene(pattern, s.track, s.step, s.scene)
+        pattern = setStepScene(pattern, s.track, s.step, s.scene)
         const cond = JSON.parse(s.condition)
-        pattern = (await import('./engine/sequencer')).setStepCondition(pattern, s.track, s.step, cond)
+        pattern = setStepCondition(pattern, s.track, s.step, cond)
       }
       usePattern.setState({ pattern })
       if (engine) engine.setPattern(get().patternEnabled ? pattern : null)

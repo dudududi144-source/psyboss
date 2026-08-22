@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library } from 'lucide-react'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -463,6 +463,137 @@ function SamplePanel() {
   )
 }
 
+// ── Project panel component (SCOPE 5 — persistence UI) ──────────────────────
+function ProjectPanel() {
+  const projects = usePsyBoss((s) => s.projects)
+  const persistenceError = usePsyBoss((s) => s.persistenceError)
+  const saveProject = usePsyBoss((s) => s.saveProject)
+  const loadProject = usePsyBoss((s) => s.loadProject)
+  const listProjects = usePsyBoss((s) => s.listProjects)
+  const [projectName, setProjectName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Load project list on mount
+  useEffect(() => {
+    listProjects()
+  }, [listProjects])
+
+  const handleSave = async () => {
+    if (!projectName.trim()) return
+    setSaving(true)
+    await saveProject(projectName.trim())
+    setSaving(false)
+    setProjectName('')
+  }
+
+  const handleLoad = async (id: string) => {
+    await loadProject(id)
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+      await listProjects()
+    } catch (e) {
+      console.error('Delete failed:', e)
+    }
+  }
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Database className="w-4 h-4 text-emerald-400" />
+        <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          Projects (Turso)
+        </h3>
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 mb-3">
+        Save and load patterns to <span className="font-mono text-emerald-400">Turso libSQL</span>.
+        BPM, pattern steps, conditions, and locks are persisted. Loaded samples are not (they're
+        in-memory only — reload them after loading a project).
+      </p>
+
+      {/* Save form */}
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          placeholder="Project name..."
+          value={projectName}
+          onChange={(e) => setProjectName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
+          className="text-[11px] font-mono bg-background border border-border rounded px-2 py-1.5 flex-1"
+        />
+        <Button
+          onClick={handleSave}
+          disabled={!projectName.trim() || saving}
+          size="sm"
+          className="bg-emerald-500 hover:bg-emerald-400 text-black font-mono"
+        >
+          <Save className="w-3.5 h-3.5 mr-1.5" />
+          Save
+        </Button>
+        <Button
+          onClick={() => listProjects()}
+          size="sm"
+          variant="outline"
+          className="font-mono"
+        >
+          <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+          Refresh
+        </Button>
+      </div>
+
+      {persistenceError && (
+        <div className="mb-3 text-[11px] font-mono text-destructive">
+          Error: {persistenceError}
+        </div>
+      )}
+
+      {/* Project list */}
+      <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
+        Saved ({projects.length})
+      </div>
+      {projects.length === 0 ? (
+        <div className="text-[11px] font-mono text-muted-foreground/50 italic">
+          No saved projects. Enter a name above and click Save.
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {projects.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center justify-between gap-2 p-2 rounded border border-border/40 bg-black/20 text-[11px] font-mono"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-foreground/80">{p.name}</div>
+                <div className="text-[9px] text-muted-foreground/60">
+                  {p.bpm} BPM · {p._count.steps} steps · {p._count.samples} samples · {new Date(p.updatedAt).toLocaleDateString()}
+                </div>
+              </div>
+              <button
+                onClick={() => handleLoad(p.id)}
+                className="text-emerald-400 hover:text-emerald-300 p-1"
+                aria-label="Load project"
+                title="Load"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleDelete(p.id)}
+                className="text-muted-foreground hover:text-destructive p-1"
+                aria-label="Delete project"
+                title="Delete"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export default function Home() {
   // Selectors: each field pulled individually so a change to one doesn't re-render
   // components that only depend on another. (ROAST-2 #4 fix: was destructuring the
@@ -745,9 +876,9 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ── STEP SEQUENCER + RENDER + SAMPLES ── */}
+            {/* ── SEQUENCER + RENDER + SAMPLES + PROJECTS ── */}
             <Tabs defaultValue="sequencer" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 bg-card/40">
+              <TabsList className="grid w-full grid-cols-4 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Music2 className="w-3.5 h-3.5 mr-1.5" />
                   Sequencer
@@ -760,6 +891,10 @@ export default function Home() {
                   <Library className="w-3.5 h-3.5 mr-1.5" />
                   Samples
                 </TabsTrigger>
+                <TabsTrigger value="projects" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Database className="w-3.5 h-3.5 mr-1.5" />
+                  Projects
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="sequencer" className="mt-3">
@@ -770,6 +905,9 @@ export default function Home() {
               </TabsContent>
               <TabsContent value="samples" className="mt-3">
                 <SamplePanel />
+              </TabsContent>
+              <TabsContent value="projects" className="mt-3">
+                <ProjectPanel />
               </TabsContent>
             </Tabs>
           </>

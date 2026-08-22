@@ -437,10 +437,11 @@ export class AudioEngine {
     }
     this.armedTrigs = []
 
-    // Pattern playback: ONLY schedule when a NEW bar has arrived (de-duplicate).
-    // The worklet posts transport on every 16th-note boundary (for UI highlight),
-    // but we only need to schedule pattern steps once per bar.
-    if (this.currentPattern && this.transport.bar !== this.lastScheduledBar) {
+    // Pattern playback: ONLY schedule when a NEW bar has arrived (de-duplicate)
+    // AND transport is actually playing. ROAST-6 #1 fix: was missing the playing
+    // guard — stop() posts transport (playing=false) which triggered flushArmedTrigs,
+    // which scheduled 2 bars of voices because currentPattern was still set.
+    if (this.currentPattern && this.transport.playing && this.transport.bar !== this.lastScheduledBar) {
       const currentBar = this.transport.bar
       this.lastScheduledBar = currentBar
 

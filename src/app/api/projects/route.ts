@@ -9,6 +9,16 @@ import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
+// ROAST-6 #2 fix: BigInt JSON serialization — JSON.stringify throws on BigInt.
+// Replacer converts BigInt to string for safe transport.
+function bigIntReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'bigint' ? value.toString() : value
+}
+
+function jsonSafe(data: unknown): unknown {
+  return JSON.parse(JSON.stringify(data, bigIntReplacer))
+}
+
 // GET /api/projects — list all projects
 export async function GET() {
   try {
@@ -23,7 +33,7 @@ export async function GET() {
         _count: { select: { steps: true, samples: true } },
       },
     })
-    return NextResponse.json({ projects })
+    return NextResponse.json({ projects: jsonSafe(projects) })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Unknown error' }, { status: 500 })
   }
