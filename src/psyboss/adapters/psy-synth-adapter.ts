@@ -105,12 +105,15 @@ interface SynthDeviceConstructor {
 }
 
 // psysynth is expected to be available as a module import or global.
-declare global {
-  interface Window {
-    PsySynth?: {
-      SynthDevice: SynthDeviceConstructor
-    }
-  }
+// Using a distinct global name to avoid conflict with PsySynthPro's window.PsySynth.
+interface PsySynthGlobal {
+  SynthDevice: SynthDeviceConstructor
+}
+
+function getPsySynthGlobal(): PsySynthGlobal | null {
+  if (typeof window === 'undefined') return null
+  const win = window as unknown as { PsySynthDevice?: PsySynthGlobal }
+  return win.PsySynthDevice ?? null
 }
 
 /** Map PSYBUS scene IDs to MIDI notes for synth triggers. */
@@ -163,11 +166,12 @@ export class PsySynthAdapter extends DeviceAdapter {
     this.outputNode = outputNode
 
     // Wait for psysynth to be available.
-    if (typeof window === 'undefined' || !window.PsySynth) {
-      throw new Error('psysynth not loaded. Include psysynth bundle first.')
+    const psySynthGlobal = getPsySynthGlobal()
+    if (!psySynthGlobal) {
+      throw new Error('psysynth not loaded. Include psysynth bundle first (window.PsySynthDevice).')
     }
 
-    this.device = new window.PsySynth.SynthDevice({
+    this.device = new psySynthGlobal.SynthDevice({
       deviceId: 'psysynth-psboss',
       audioContext: ctx,
       outputNode,
