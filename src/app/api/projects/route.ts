@@ -1,10 +1,6 @@
 /**
  * PSYBOSS project persistence API.
- * POST /api/projects — create or update a project (upsert by id).
- * GET /api/projects — list all projects (most recent first).
- *
- * Static export guard: when NEXT_PUBLIC_STATIC=true, these routes return
- * empty data so the build does not attempt to connect to the database.
+ * Static export safe: NO database import at module level.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,13 +17,19 @@ function jsonSafe(data: unknown): unknown {
   return JSON.parse(JSON.stringify(data, bigIntReplacer))
 }
 
+async function getDb() {
+  // Dynamic import INSIDE the function - never runs during static build
+  const { db } = await import('@/lib/db')
+  return db
+}
+
 // GET /api/projects — list all projects
 export async function GET() {
   if (IS_STATIC) {
     return NextResponse.json({ projects: [] })
   }
   try {
-    const { db } = await import('@/lib/db')
+    const db = await getDb()
     const projects = await db.project.findMany({
       orderBy: { updatedAt: 'desc' },
       select: {
@@ -51,9 +53,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Project persistence is disabled in demo mode' }, { status: 503 })
   }
   try {
-    const { db } = await import('@/lib/db')
+    const db = await getDb()
     const body = await req.json()
-    const { id, name, bpm, seed, patternEnabled, steps, samples } = body
+    const { id, name, bpm, seed, patternEnabled, steps } = body
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json({ error: 'name is required' }, { status: 400 })
