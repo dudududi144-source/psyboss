@@ -603,23 +603,30 @@ function DevicesPanel() {
 
   useEffect(() => {
     // Check Web MIDI support
-    const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<unknown> }
-    setMidiSupported(typeof nav.requestMIDIAccess === 'function')
+    type MidiNav = Navigator & { requestMIDIAccess?: (opts?: { sysex?: boolean }) => Promise<unknown> }
+    const nav = navigator as MidiNav
+    const hasMidi = typeof nav.requestMIDIAccess === 'function'
+    setMidiSupported(hasMidi)
 
     // List MIDI devices if supported
-    if (typeof nav.requestMIDIAccess === 'function') {
-      nav.requestMIDIAccess().then((access) => {
+    if (hasMidi && nav.requestMIDIAccess) {
+      nav.requestMIDIAccess().then((access: unknown) => {
         const devices: Array<{ id: string; name: string; type: string }> = []
+        // Use duck typing to avoid TS conflicts with MIDIAccess interface
         const midiAccess = access as {
-          inputs: Map<string, { id: string; name: string }>
-          outputs: Map<string, { id: string; name: string }>
+          inputs?: { forEach?: (cb: (input: { id: string; name?: string }) => void) => void }
+          outputs?: { forEach?: (cb: (output: { id: string; name?: string }) => void) => void }
         }
-        midiAccess.inputs.forEach((input) => {
-          devices.push({ id: input.id, name: input.name || 'Unknown MIDI Input', type: 'input' })
-        })
-        midiAccess.outputs.forEach((output) => {
-          devices.push({ id: output.id, name: output.name || 'Unknown MIDI Output', type: 'output' })
-        })
+        if (midiAccess.inputs?.forEach) {
+          midiAccess.inputs.forEach((input) => {
+            devices.push({ id: input.id, name: input.name || 'Unknown MIDI Input', type: 'input' })
+          })
+        }
+        if (midiAccess.outputs?.forEach) {
+          midiAccess.outputs.forEach((output) => {
+            devices.push({ id: output.id, name: output.name || 'Unknown MIDI Output', type: 'output' })
+          })
+        }
         setMidiDevices(devices)
       }).catch(() => {
         // MIDI access denied or unavailable
