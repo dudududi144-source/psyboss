@@ -50,10 +50,16 @@ interface MIDIAccess {
   onstatechange: (() => void) | null
 }
 
-declare global {
-  interface Navigator {
-    requestMIDIAccess?(options?: { sysex?: boolean }): Promise<MIDIAccess>
+// Web MIDI types are in lib.dom.d.ts — no need to redeclare Navigator.
+// We use a type-safe accessor for browsers that support it.
+function getRequestMIDIAccess(): ((options?: { sysex?: boolean }) => Promise<MIDIAccess>) | null {
+  if (typeof navigator === 'undefined') return null
+  const nav = navigator as Navigator & {
+    requestMIDIAccess?: (options?: { sysex?: boolean }) => Promise<MIDIAccess>
   }
+  return typeof nav.requestMIDIAccess === 'function'
+    ? nav.requestMIDIAccess.bind(nav)
+    : null
 }
 
 /** MIDI status bytes. */
@@ -130,12 +136,13 @@ export class MidiAdapter extends DeviceAdapter {
   async init(): Promise<void> {
     if (this.ready) return
 
-    if (typeof navigator === 'undefined' || !navigator.requestMIDIAccess) {
+    const requestAccess = getRequestMIDIAccess()
+    if (!requestAccess) {
       throw new Error('Web MIDI API not supported in this browser. Use Chrome/Edge/Opera.')
     }
 
     try {
-      this.midiAccess = await navigator.requestMIDIAccess({ sysex: false })
+      this.midiAccess = await requestAccess({ sysex: false })
     } catch (err) {
       throw new Error(`Web MIDI access denied: ${err}`)
     }
