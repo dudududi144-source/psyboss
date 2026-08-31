@@ -21,6 +21,7 @@ PSYBOSS can now connect to external devices via PSYBUS:
 |---------|--------|--------|
 | `PsySynthProAdapter` | 16-voice DSP synthesizer | Ready |
 | `PsyDrumAdapter` | PsyDevice-conformant drum machine | Ready |
+| `PsySynthAdapter` | Canonical subtractive synth (PolyBLEP + ZDF SVF) | Ready |
 | `MidiAdapter` | Web MIDI input/output + 24-ppq clock | Ready |
 | WebRTC P2P | Multi-performer sync | Planned |
 
