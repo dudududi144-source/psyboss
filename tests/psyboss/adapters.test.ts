@@ -23,6 +23,7 @@ import { DeviceAdapter } from '@/psyboss/adapters/device-adapter'
 import { PsySynthProAdapter } from '@/psyboss/adapters/psy-synth-pro-adapter'
 import { PsyDrumAdapter } from '@/psyboss/adapters/psy-drum-adapter'
 import { MidiAdapter } from '@/psyboss/adapters/midi-adapter'\nimport { PsySynthAdapter } from '@/psyboss/adapters/psy-synth-adapter'
+import { WebRTCAdapter } from '@/psyboss/adapters/webrtc-adapter'
 import { deviceId, paramId } from '@/psybus/types'
 
 // ── DeviceAdapter base class ─────────────────────────────────────────────
@@ -187,6 +188,46 @@ describe('PsySynthAdapter', () => {
     // Scene 0 = C2 (36), Scene 1 = C3 (48), Scene 2 = C4 (60), Scene 3 = C5 (72)
     const adapter = new PsySynthAdapter(0x9e3779b9)
     expect(adapter).toBeDefined()
+  })
+})
+
+
+// ── WebRTCAdapter ────────────────────────────────────────────────────────
+
+describe('WebRTCAdapter', () => {
+  it('creates with correct role', () => {
+    const host = new WebRTCAdapter({ seed: 0x9e3779b9, role: 'host' })
+    const guest = new WebRTCAdapter({ seed: 0x9e3779b9, role: 'guest' })
+    expect(host.getRole()).toBe('host')
+    expect(guest.getRole()).toBe('guest')
+  })
+
+  it('starts with idle status', () => {
+    const adapter = new WebRTCAdapter({ seed: 0x1234, role: 'host' })
+    expect(adapter.getStatus()).toBe('idle')
+  })
+
+  it('rejects createOffer for guest role', async () => {
+    const guest = new WebRTCAdapter({ seed: 0x1234, role: 'guest' })
+    await expect(guest.createOffer()).rejects.toThrow('host-only')
+  })
+
+  it('rejects acceptOffer for host role', async () => {
+    const host = new WebRTCAdapter({ seed: 0x1234, role: 'host' })
+    await expect(host.acceptOffer('fake-offer')).rejects.toThrow('guest-only')
+  })
+
+  it('estimates zero latency before sync', () => {
+    const adapter = new WebRTCAdapter({ seed: 0x1234, role: 'host' })
+    expect(adapter.getEstimatedLatencyMs()).toBe(0)
+  })
+
+  it('notifies status listeners', () => {
+    const adapter = new WebRTCAdapter({ seed: 0x1234, role: 'host' })
+    const statuses: string[] = []
+    const unsub = adapter.onStatus((s) => statuses.push(s))
+    expect(statuses).toContain('idle')
+    unsub()
   })
 })
 
