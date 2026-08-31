@@ -371,3 +371,130 @@ export const usePattern = create<PatternStore>((set, get) => ({
 
 export { STEPS_PER_BAR }
 
+
+
+// ── Devices store (PSYBUS adapter management) ─────────────────────────────
+export interface DeviceInfo {
+  id: string
+  name: string
+  description: string
+  status: 'disconnected' | 'connecting' | 'connected' | 'error' | 'unsupported' | 'coming-soon'
+  error?: string
+}
+
+export interface DevicesStore {
+  devices: DeviceInfo[]
+  connect: (id: string) => Promise<void>
+  disconnect: (id: string) => void
+  isConnected: (id: string) => boolean
+}
+
+const INITIAL_DEVICES: DeviceInfo[] = [
+  {
+    id: 'psysynthpro',
+    name: 'PsySynthPro',
+    description: '16-voice DSP synthesizer (PolyBLEP + wavetable + FM)',
+    status: 'disconnected',
+  },
+  {
+    id: 'psydrum',
+    name: 'psydrum',
+    description: 'PsyDevice-conformant drum machine (voice pool + choke)',
+    status: 'disconnected',
+  },
+  {
+    id: 'midi',
+    name: 'Web MIDI',
+    description: 'MIDI input/output + 24-ppq clock sync',
+    status: 'disconnected',
+  },
+  {
+    id: 'webrtc',
+    name: 'WebRTC P2P',
+    description: 'Multi-performer sync (coming in Scope 3)',
+    status: 'coming-soon',
+  },
+]
+
+export const useDevices = create<DevicesStore>((set, get) => ({
+  devices: INITIAL_DEVICES,
+
+  connect: async (id: string) => {
+    set((state) => ({
+      devices: state.devices.map((d) =>
+        d.id === id ? { ...d, status: 'connecting' as const } : d
+      ),
+    }))
+
+    try {
+      // Dynamic import to avoid bundling adapters in the initial load
+      if (id === 'psysynthpro') {
+        const { createPsySynthProAdapter } = await import('./adapters/psy-synth-pro-adapter')
+        const adapter = createPsySynthProAdapter(SEED)
+        await adapter.init()
+        set((state) => ({
+          devices: state.devices.map((d) =>
+            d.id === id ? { ...d, status: 'connected' as const } : d
+          ),
+        }))
+      } else if (id === 'psydrum') {
+        const { createPsyDrumAdapter } = await import('./adapters/psy-drum-adapter')
+        const adapter = createPsyDrumAdapter(SEED)
+        // psydrum needs AudioContext and outputNode from the engine
+        const engine = getEngine()
+        if (engine) {
+          const ctx = (engine as any).ctx as BaseAudioContext
+          const masterGain = (engine as any).masterGain as AudioNode
+          if (ctx && masterGain) {
+            await adapter.init(ctx, masterGain)
+            set((state) => ({
+              devices: state.devices.map((d) =>
+                d.id === id ? { ...d, status: 'connected' as const } : d
+              ),
+            }))
+          } else {
+            throw new Error('AudioEngine not initialized. Boot PSYBOSS first.')
+          }
+        } else {
+          throw new Error('AudioEngine not initialized. Boot PSYBOSS first.')
+        }
+      } else if (id === 'midi') {
+        const { createMidiAdapter } = await import('./adapters/midi-adapter')
+        const adapter = createMidiAdapter({ seed: SEED })
+        await adapter.init()
+        set((state) => ({
+          devices: state.devices.map((d) =>
+            d.id === id ? { ...d, status: 'connected' as const } : d
+          ),
+        }))
+      } else if (id === 'webrtc') {
+        // Not yet implemented
+        set((state) => ({
+          devices: state.devices.map((d) =>
+            d.id === id ? { ...d, status: 'coming-soon' as const } : d
+          ),
+        }))
+      }
+    } catch (err) {
+      set((state) => ({
+        devices: state.devices.map((d) =>
+          d.id === id
+            ? { ...d, status: 'error' as const, error: err instanceof Error ? err.message : String(err) }
+            : d
+        ),
+      }))
+    }
+  },
+
+  disconnect: (id: string) => {
+    set((state) => ({
+      devices: state.devices.map((d) =>
+        d.id === id ? { ...d, status: 'disconnected' as const, error: undefined } : d
+      ),
+    }))
+  },
+
+  isConnected: (id: string) => {
+    return get().devices.find((d) => d.id === id)?.status === 'connected'
+  },
+}))
