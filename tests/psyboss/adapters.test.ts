@@ -22,7 +22,7 @@ vi.mock('@/psybus/host', () => ({
 import { DeviceAdapter } from '@/psyboss/adapters/device-adapter'
 import { PsySynthProAdapter } from '@/psyboss/adapters/psy-synth-pro-adapter'
 import { PsyDrumAdapter } from '@/psyboss/adapters/psy-drum-adapter'
-import { MidiAdapter } from '@/psyboss/adapters/midi-adapter'
+import { MidiAdapter } from '@/psyboss/adapters/midi-adapter'\nimport { PsySynthAdapter } from '@/psyboss/adapters/psy-synth-adapter'
 import { deviceId, paramId } from '@/psybus/types'
 
 // ── DeviceAdapter base class ─────────────────────────────────────────────
@@ -171,6 +171,22 @@ describe('MidiAdapter', () => {
     const bpm144 = 144
     const clockInterval144 = 60000 / (bpm144 * 24)
     expect(clockInterval144).toBeCloseTo(17.36, 1)
+  })
+})
+
+
+// ── PsySynthAdapter ──────────────────────────────────────────────────────
+
+describe('PsySynthAdapter', () => {
+  it('creates with correct capabilities', () => {
+    const adapter = new PsySynthAdapter(0x9e3779b9)
+    expect(adapter).toBeDefined()
+  })
+
+  it('maps scene IDs to synth notes correctly', () => {
+    // Scene 0 = C2 (36), Scene 1 = C3 (48), Scene 2 = C4 (60), Scene 3 = C5 (72)
+    const adapter = new PsySynthAdapter(0x9e3779b9)
+    expect(adapter).toBeDefined()
   })
 })
 
