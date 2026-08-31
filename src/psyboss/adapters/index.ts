@@ -14,4 +14,4 @@
 export { DeviceAdapter, type DeviceAdapterOptions, type AdapterTelemetry } from './device-adapter'
 export { PsySynthProAdapter, createPsySynthProAdapter } from './psy-synth-pro-adapter'
 export { PsyDrumAdapter, createPsyDrumAdapter } from './psy-drum-adapter'
-export { MidiAdapter, createMidiAdapter, type MidiAdapterOptions } from './midi-adapter'
+export { MidiAdapter, createMidiAdapter, type MidiAdapterOptions } from './midi-adapter'\nexport { PsySynthAdapter, createPsySynthAdapter } from './psy-synth-adapter'
