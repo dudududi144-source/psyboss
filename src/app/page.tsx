@@ -1008,7 +1008,8 @@ function DevicesPanel() {
           </p>
         </div>
       )}
-          <WebRTCSignalingPanel />\n    </Card>
+          <WebRTCSignalingPanel />
+    </Card>
   )
 }
 
