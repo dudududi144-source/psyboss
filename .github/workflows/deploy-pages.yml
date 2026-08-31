@@ -39,6 +39,12 @@ jobs:
         env:
           DATABASE_URL: "file:./dummy.db"
 
+      - name: Remove API routes for static build
+        run: |
+          echo "Removing API routes (not supported in static export)..."
+          rm -rf src/app/api
+          echo "API routes removed. Static build will have no server endpoints."
+
       - name: Build static site
         run: NEXT_PUBLIC_STATIC=true bun run next build
         env:
@@ -47,8 +53,6 @@ jobs:
       - name: Prepare output for GitHub Pages
         run: |
           touch out/.nojekyll
-          # Redirect root to /psyboss/ for clean URLs
-          echo '<meta http-equiv="refresh" content="0; url=/psyboss/">' > out/index.html || true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
