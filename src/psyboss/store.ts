@@ -417,8 +417,8 @@ const INITIAL_DEVICES: DeviceInfo[] = [
   {
     id: 'webrtc',
     name: 'WebRTC P2P',
-    description: 'Multi-performer sync (coming in Scope 3)',
-    status: 'coming-soon',
+    description: 'Multi-performer sync over the internet (NTP-style, jitter-buffered)',
+    status: 'disconnected',
   },
 ]
 
@@ -494,10 +494,11 @@ export const useDevices = create<DevicesStore>((set, get) => ({
           ),
         }))
       } else if (id === 'webrtc') {
-        // Not yet implemented
+        // WebRTC uses the dedicated signaling flow (hostSession/joinSession).
+        // connect() just marks it as ready-to-configure.
         set((state) => ({
           devices: state.devices.map((d) =>
-            d.id === id ? { ...d, status: 'coming-soon' as const } : d
+            d.id === id ? { ...d, status: 'disconnected' as const } : d
           ),
         }))
       }
@@ -522,5 +523,119 @@ export const useDevices = create<DevicesStore>((set, get) => ({
 
   isConnected: (id: string) => {
     return get().devices.find((d) => d.id === id)?.status === 'connected'
+  },
+}))
+
+
+// ── WebRTC P2P store (Scope 3 final: multi-performer sync) ───────────────
+import type { ConnectionStatus } from './adapters/webrtc-adapter'
+import type { WebRTCAdapter } from './adapters/webrtc-adapter'
+
+export interface WebRTCStore {
+  role: 'host' | 'guest' | null
+  status: ConnectionStatus
+  offer: string        // host: generated offer / guest: pasted offer
+  answer: string       // guest: generated answer / host: pasted answer
+  latencyMs: number
+  error: string | null
+  adapter: WebRTCAdapter | null
+
+  setRole: (role: 'host' | 'guest') => void
+  /** HOST: create the offer (returns it, also stored in state). */
+  hostSession: () => Promise<string>
+  /** HOST: accept the guest's pasted answer to complete the handshake. */
+  acceptAnswer: (answer: string) => Promise<void>
+  /** GUEST: accept the host's pasted offer, generate + return the answer. */
+  joinSession: (offer: string) => Promise<string>
+  disconnect: () => void
+  reset: () => void
+}
+
+export const useWebRTC = create<WebRTCStore>((set, get) => ({
+  role: null,
+  status: 'idle',
+  offer: '',
+  answer: '',
+  latencyMs: 0,
+  error: null,
+  adapter: null,
+
+  setRole: (role) => set({ role, error: null }),
+
+  hostSession: async () => {
+    const { createWebRTCAdapter } = await import('./adapters/webrtc-adapter')
+    const adapter = createWebRTCAdapter({ seed: SEED, role: 'host' })
+    adapter.register()
+    set({ adapter, role: 'host', error: null })
+
+    adapter.onStatus((status) => {
+      set({ status, latencyMs: adapter.getEstimatedLatencyMs() })
+    })
+
+    try {
+      const offer = await adapter.createOffer()
+      set({ offer, status: 'signaling' })
+      return offer
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg, status: 'error' })
+      throw err
+    }
+  },
+
+  acceptAnswer: async (answer) => {
+    const { adapter } = get()
+    if (!adapter) {
+      set({ error: 'No active host session. Create an offer first.' })
+      return
+    }
+    try {
+      await adapter.acceptAnswer(answer)
+      set({ answer, error: null })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg, status: 'error' })
+    }
+  },
+
+  joinSession: async (offer) => {
+    const { createWebRTCAdapter } = await import('./adapters/webrtc-adapter')
+    const adapter = createWebRTCAdapter({ seed: SEED, role: 'guest' })
+    adapter.register()
+    set({ adapter, role: 'guest', offer, error: null })
+
+    adapter.onStatus((status) => {
+      set({ status, latencyMs: adapter.getEstimatedLatencyMs() })
+    })
+
+    try {
+      const answer = await adapter.acceptOffer(offer)
+      set({ answer, status: 'signaling' })
+      return answer
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg, status: 'error' })
+      throw err
+    }
+  },
+
+  disconnect: () => {
+    const { adapter } = get()
+    if (adapter) adapter.dispose()
+    set({ adapter: null, status: 'disconnected' })
+  },
+
+  reset: () => {
+    const { adapter } = get()
+    if (adapter) adapter.dispose()
+    set({
+      adapter: null,
+      role: null,
+      status: 'idle',
+      offer: '',
+      answer: '',
+      latencyMs: 0,
+      error: null,
+    })
   },
 }))
