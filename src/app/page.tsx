@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database } from 'lucide-react'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database, Cable } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -594,6 +594,167 @@ function ProjectPanel() {
   )
 }
 
+
+// ── DEVICES PANEL (Scope 3: PSYBUS device adapters) ─────────────────────
+function DevicesPanel() {
+  const [midiSupported, setMidiSupported] = useState<boolean | null>(null)
+  const [midiDevices, setMidiDevices] = useState<Array<{ id: string; name: string; type: string }>>([])
+  const [connectedAdapters, setConnectedAdapters] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    // Check Web MIDI support
+    const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<unknown> }
+    setMidiSupported(typeof nav.requestMIDIAccess === 'function')
+
+    // List MIDI devices if supported
+    if (typeof nav.requestMIDIAccess === 'function') {
+      nav.requestMIDIAccess().then((access) => {
+        const devices: Array<{ id: string; name: string; type: string }> = []
+        const midiAccess = access as {
+          inputs: Map<string, { id: string; name: string }>
+          outputs: Map<string, { id: string; name: string }>
+        }
+        midiAccess.inputs.forEach((input) => {
+          devices.push({ id: input.id, name: input.name || 'Unknown MIDI Input', type: 'input' })
+        })
+        midiAccess.outputs.forEach((output) => {
+          devices.push({ id: output.id, name: output.name || 'Unknown MIDI Output', type: 'output' })
+        })
+        setMidiDevices(devices)
+      }).catch(() => {
+        // MIDI access denied or unavailable
+      })
+    }
+  }, [])
+
+  const toggleAdapter = (id: string) => {
+    setConnectedAdapters((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const adapters = [
+    {
+      id: 'psysynthpro',
+      name: 'PsySynthPro',
+      description: '16-voice DSP synthesizer (PolyBLEP + wavetable + FM)',
+      status: 'available' as const,
+      icon: <Zap className="w-4 h-4" />,
+    },
+    {
+      id: 'psydrum',
+      name: 'psydrum',
+      description: 'PsyDevice-conformant drum machine (voice pool + choke)',
+      status: 'available' as const,
+      icon: <Radio className="w-4 h-4" />,
+    },
+    {
+      id: 'midi',
+      name: 'Web MIDI',
+      description: 'MIDI input/output + 24-ppq clock sync',
+      status: midiSupported ? 'available' as const : 'unsupported' as const,
+      icon: <Keyboard className="w-4 h-4" />,
+    },
+    {
+      id: 'webrtc',
+      name: 'WebRTC P2P',
+      description: 'Multi-performer sync (coming in Scope 3)',
+      status: 'coming-soon' as const,
+      icon: <Activity className="w-4 h-4" />,
+    },
+  ]
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-3 md:p-4">
+      <div className="mb-4">
+        <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          PSYBUS Devices
+        </h3>
+        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+          Connect external devices to the PSYBOSS conductor. All devices sync via PSYBUS protocol.
+        </p>
+      </div>
+
+      <div className="grid gap-2">
+        {adapters.map((adapter) => {
+          const connected = connectedAdapters.has(adapter.id)
+          const isAvailable = adapter.status === 'available'
+          const isComingSoon = adapter.status === 'coming-soon'
+
+          return (
+            <div
+              key={adapter.id}
+              className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-all ${
+                connected
+                  ? 'border-emerald-500/50 bg-emerald-500/10'
+                  : 'border-border/40 bg-background/20'
+              } ${!isAvailable && !isComingSoon ? 'opacity-50' : ''}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-md ${connected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-foreground/5 text-muted-foreground'}`}>
+                  {adapter.icon}
+                </div>
+                <div>
+                  <div className="font-mono text-xs font-bold">{adapter.name}</div>
+                  <div className="text-[10px] text-muted-foreground/70">{adapter.description}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {adapter.status === 'unsupported' && (
+                  <Badge variant="outline" className="font-mono text-[9px] text-red-400 border-red-400/30">
+                    NOT SUPPORTED
+                  </Badge>
+                )}
+                {isComingSoon && (
+                  <Badge variant="outline" className="font-mono text-[9px] text-amber-400 border-amber-400/30">
+                    SOON
+                  </Badge>
+                )}
+                {isAvailable && (
+                  <Switch
+                    checked={connected}
+                    onCheckedChange={() => toggleAdapter(adapter.id)}
+                    aria-label={`Connect ${adapter.name}`}
+                  />
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* MIDI Devices List */}
+      {midiSupported && midiDevices.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-border/40">
+          <h4 className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+            Connected MIDI Devices
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {midiDevices.map((device) => (
+              <Badge key={device.id} variant="outline" className="font-mono text-[9px] gap-1">
+                {device.type === 'input' ? <Keyboard className="w-2.5 h-2.5" /> : <Activity className="w-2.5 h-2.5" />}
+                {device.name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {midiSupported === false && (
+        <div className="mt-4 pt-3 border-t border-border/40">
+          <p className="text-[10px] font-mono text-red-400/70">
+            Web MIDI API is not supported in this browser. Use Chrome, Edge, or Opera for MIDI support.
+          </p>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+
 export default function Home() {
   // Selectors: each field pulled individually so a change to one doesn't re-render
   // components that only depend on another. (ROAST-2 #4 fix: was destructuring the
@@ -878,7 +1039,7 @@ export default function Home() {
 
             {/* ── SEQUENCER + RENDER + SAMPLES + PROJECTS ── */}
             <Tabs defaultValue="sequencer" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 bg-card/40">
+              <TabsList className="grid w-full grid-cols-5 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Music2 className="w-3.5 h-3.5 mr-1.5" />
                   Sequencer
@@ -895,6 +1056,10 @@ export default function Home() {
                   <Database className="w-3.5 h-3.5 mr-1.5" />
                   Projects
                 </TabsTrigger>
+                <TabsTrigger value="devices" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Cable className="w-3.5 h-3.5 mr-1.5" />
+                  Devices
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="sequencer" className="mt-3">
@@ -909,6 +1074,9 @@ export default function Home() {
               <TabsContent value="projects" className="mt-3">
                 <ProjectPanel />
               </TabsContent>
+              <TabsContent value="devices" className="mt-3">
+                <DevicesPanel />
+              </TabsContent>
             </Tabs>
           </>
         )}
@@ -922,7 +1090,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.4 · MIT
+            PSYBOSS · v0.5 · MIT
           </div>
         </div>
       </footer>
