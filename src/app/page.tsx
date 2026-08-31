@@ -649,6 +649,7 @@ function DevicesPanel() {
   const getAdapterIcon = (id: string) => {
     switch (id) {
       case 'psysynthpro': return <Zap className="w-4 h-4" />
+      case 'psysynth': return <Music2 className="w-4 h-4" />
       case 'psydrum': return <Radio className="w-4 h-4" />
       case 'midi': return <Keyboard className="w-4 h-4" />
       case 'webrtc': return <Activity className="w-4 h-4" />
@@ -1093,7 +1094,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.5 · MIT
+            PSYBOSS · v0.6 · MIT
           </div>
         </div>
       </footer>
