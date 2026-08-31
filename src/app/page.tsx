@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, memo } from 'react'
-import { usePsyBoss, useMeter, usePattern, useDevices, STEPS_PER_BAR } from '@/psyboss/store'
+import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
 import type { TrigCondition } from '@/psyboss/engine/lfsr'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,8 @@ import { Slider } from '@/components/ui/slider'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database, Cable } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database, Cable, Copy, Check, Users } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -595,6 +596,259 @@ function ProjectPanel() {
 }
 
 
+
+// ── Copy-to-clipboard helper button ──────────────────────────────────────
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {
+      // Clipboard API unavailable; user can select manually.
+    })
+  }
+  return (
+    <button
+      onClick={copy}
+      className="flex items-center gap-1 px-2 py-1 rounded-md bg-foreground/5 hover:bg-foreground/10 text-[10px] font-mono text-muted-foreground transition-colors"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+// ── WEBRTC SIGNALING PANEL (Scope 3 final) ───────────────────────────────
+// Serverless P2P sync: host creates an offer, guest pastes it and returns an
+// answer, host pastes the answer. No signaling server, no accounts.
+function WebRTCSignalingPanel() {
+  const role = useWebRTC((s) => s.role)
+  const status = useWebRTC((s) => s.status)
+  const offer = useWebRTC((s) => s.offer)
+  const answer = useWebRTC((s) => s.answer)
+  const latencyMs = useWebRTC((s) => s.latencyMs)
+  const error = useWebRTC((s) => s.error)
+  const setRole = useWebRTC((s) => s.setRole)
+  const hostSession = useWebRTC((s) => s.hostSession)
+  const acceptAnswer = useWebRTC((s) => s.acceptAnswer)
+  const joinSession = useWebRTC((s) => s.joinSession)
+  const disconnect = useWebRTC((s) => s.disconnect)
+  const reset = useWebRTC((s) => s.reset)
+
+  const [hostOfferInput, setHostOfferInput] = useState('') // guest pastes host offer
+  const [hostAnswerInput, setHostAnswerInput] = useState('') // host pastes guest answer
+  const [busy, setBusy] = useState(false)
+
+  const statusColor = {
+    idle: 'text-muted-foreground',
+    signaling: 'text-amber-400',
+    connecting: 'text-amber-400',
+    connected: 'text-emerald-400',
+    disconnected: 'text-muted-foreground',
+    error: 'text-red-400',
+  }[status]
+
+  const statusLabel = {
+    idle: 'IDLE',
+    signaling: 'SIGNALING',
+    connecting: 'CONNECTING',
+    connected: 'CONNECTED',
+    disconnected: 'DISCONNECTED',
+    error: 'ERROR',
+  }[status]
+
+  const handleCreateOffer = async () => {
+    setBusy(true)
+    try {
+      await hostSession()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleJoinSession = async () => {
+    if (!hostOfferInput.trim()) return
+    setBusy(true)
+    try {
+      await joinSession(hostOfferInput.trim())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleAcceptAnswer = async () => {
+    if (!hostAnswerInput.trim()) return
+    setBusy(true)
+    try {
+      await acceptAnswer(hostAnswerInput.trim())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 pt-3 border-t border-border/40">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-emerald-400" />
+          <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            P2P Sync Session
+          </h4>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`font-mono text-[10px] font-bold ${statusColor}`}>
+            {status === 'connected' ? '● ' : '○ '}{statusLabel}
+          </span>
+          {status === 'connected' && latencyMs > 0 && (
+            <span className="font-mono text-[10px] text-emerald-400/70">
+              ~{Math.round(latencyMs)}ms
+            </span>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 p-2 rounded-md bg-red-500/10 border border-red-500/30 text-[10px] font-mono text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Role selection */}
+      {!role && (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setRole('host')}
+            className="p-3 rounded-lg border border-border/40 bg-background/20 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all text-left"
+          >
+            <div className="font-mono text-xs font-bold text-emerald-400">I am the HOST</div>
+            <div className="text-[10px] text-muted-foreground/70 mt-0.5">
+              I set the tempo. I create the offer.
+            </div>
+          </button>
+          <button
+            onClick={() => setRole('guest')}
+            className="p-3 rounded-lg border border-border/40 bg-background/20 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all text-left"
+          >
+            <div className="font-mono text-xs font-bold text-cyan-400">I am the GUEST</div>
+            <div className="text-[10px] text-muted-foreground/70 mt-0.5">
+              I follow the host. I paste the offer.
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* HOST flow */}
+      {role === 'host' && (
+        <div className="space-y-3">
+          {!offer && (
+            <Button onClick={handleCreateOffer} disabled={busy} size="sm" className="w-full font-mono text-xs">
+              {busy ? 'Generating offer...' : 'Create Offer (Step 1)'}
+            </Button>
+          )}
+
+          {offer && (
+            <>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono font-bold text-muted-foreground">
+                    Step 1: Send this OFFER to the guest
+                  </label>
+                  <CopyButton text={offer} />
+                </div>
+                <Textarea value={offer} readOnly rows={3} className="font-mono text-[9px] resize-none" />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono font-bold text-muted-foreground">
+                    Step 2: Paste the guest's ANSWER here
+                  </label>
+                </div>
+                <Textarea
+                  value={hostAnswerInput}
+                  onChange={(e) => setHostAnswerInput(e.target.value)}
+                  placeholder="Paste the guest's answer..."
+                  rows={3}
+                  className="font-mono text-[9px] resize-none"
+                />
+              </div>
+
+              <Button
+                onClick={handleAcceptAnswer}
+                disabled={busy || !hostAnswerInput.trim() || status === 'connected'}
+                size="sm"
+                className="w-full font-mono text-xs"
+              >
+                {status === 'connected' ? 'Connected' : busy ? 'Connecting...' : 'Accept Answer & Connect (Step 3)'}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* GUEST flow */}
+      {role === 'guest' && (
+        <div className="space-y-3">
+          {!answer && (
+            <>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono font-bold text-muted-foreground">
+                    Step 1: Paste the host's OFFER here
+                  </label>
+                </div>
+                <Textarea
+                  value={hostOfferInput}
+                  onChange={(e) => setHostOfferInput(e.target.value)}
+                  placeholder="Paste the host's offer..."
+                  rows={3}
+                  className="font-mono text-[9px] resize-none"
+                />
+              </div>
+              <Button
+                onClick={handleJoinSession}
+                disabled={busy || !hostOfferInput.trim()}
+                size="sm"
+                className="w-full font-mono text-xs"
+              >
+                {busy ? 'Generating answer...' : 'Generate Answer (Step 2)'}
+              </Button>
+            </>
+          )}
+
+          {answer && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-mono font-bold text-muted-foreground">
+                  Step 3: Send this ANSWER back to the host
+                </label>
+                <CopyButton text={answer} />
+              </div>
+              <Textarea value={answer} readOnly rows={3} className="font-mono text-[9px] resize-none" />
+              <p className="text-[9px] font-mono text-muted-foreground/60 mt-1">
+                Waiting for host to accept your answer. Connection will open automatically.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Connected: show disconnect + reset */}
+      {(status === 'connected' || status === 'disconnected') && role && (
+        <div className="flex gap-2 mt-3">
+          <Button onClick={disconnect} variant="outline" size="sm" className="flex-1 font-mono text-xs">
+            Disconnect
+          </Button>
+          <Button onClick={reset} variant="ghost" size="sm" className="flex-1 font-mono text-xs">
+            New Session
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── DEVICES PANEL (Scope 3: PSYBUS device adapters) ─────────────────────
 function DevicesPanel() {
   const devices = useDevices((s) => s.devices)
@@ -754,7 +1008,7 @@ function DevicesPanel() {
           </p>
         </div>
       )}
-    </Card>
+          <WebRTCSignalingPanel />\n    </Card>
   )
 }
 
@@ -1094,7 +1348,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.6 · MIT
+            PSYBOSS · v0.7 · MIT
           </div>
         </div>
       </footer>
