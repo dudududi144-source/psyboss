@@ -403,6 +403,12 @@ const INITIAL_DEVICES: DeviceInfo[] = [
     status: 'disconnected',
   },
   {
+    id: 'psysynth',
+    name: 'psysynth',
+    description: 'Canonical subtractive synth (PolyBLEP + ZDF SVF + mod matrix)',
+    status: 'disconnected',
+  },
+  {
     id: 'midi',
     name: 'Web MIDI',
     description: 'MIDI input/output + 24-ppq clock sync',
@@ -441,6 +447,26 @@ export const useDevices = create<DevicesStore>((set, get) => ({
         const { createPsyDrumAdapter } = await import('./adapters/psy-drum-adapter')
         const adapter = createPsyDrumAdapter(SEED)
         // psydrum needs AudioContext and outputNode from the engine
+        const engine = getEngine()
+        if (engine) {
+          const ctx = (engine as any).ctx as BaseAudioContext
+          const masterGain = (engine as any).masterGain as AudioNode
+          if (ctx && masterGain) {
+            await adapter.init(ctx, masterGain)
+            set((state) => ({
+              devices: state.devices.map((d) =>
+                d.id === id ? { ...d, status: 'connected' as const } : d
+              ),
+            }))
+          } else {
+            throw new Error('AudioEngine not initialized. Boot PSYBOSS first.')
+          }
+        } else {
+          throw new Error('AudioEngine not initialized. Boot PSYBOSS first.')
+        }
+      } else if (id === 'psysynth') {
+        const { createPsySynthAdapter } = await import('./adapters/psy-synth-adapter')
+        const adapter = createPsySynthAdapter(SEED)
         const engine = getEngine()
         if (engine) {
           const ctx = (engine as any).ctx as BaseAudioContext
