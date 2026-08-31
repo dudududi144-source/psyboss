@@ -2,15 +2,17 @@
  * PSYBOSS project persistence API.
  * POST /api/projects — create or update a project (upsert by id).
  * GET /api/projects — list all projects (most recent first).
+ *
+ * Static export guard: when NEXT_PUBLIC_STATIC=true, these routes return
+ * empty data so the build does not attempt to connect to the database.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-// ROAST-6 #2 fix: BigInt JSON serialization — JSON.stringify throws on BigInt.
-// Replacer converts BigInt to string for safe transport.
+const IS_STATIC = process.env.NEXT_PUBLIC_STATIC === 'true'
+
 function bigIntReplacer(_key: string, value: unknown): unknown {
   return typeof value === 'bigint' ? value.toString() : value
 }
@@ -21,7 +23,11 @@ function jsonSafe(data: unknown): unknown {
 
 // GET /api/projects — list all projects
 export async function GET() {
+  if (IS_STATIC) {
+    return NextResponse.json({ projects: [] })
+  }
   try {
+    const { db } = await import('@/lib/db')
     const projects = await db.project.findMany({
       orderBy: { updatedAt: 'desc' },
       select: {
@@ -41,7 +47,11 @@ export async function GET() {
 
 // POST /api/projects — create or update a project
 export async function POST(req: NextRequest) {
+  if (IS_STATIC) {
+    return NextResponse.json({ error: 'Project persistence is disabled in demo mode' }, { status: 503 })
+  }
   try {
+    const { db } = await import('@/lib/db')
     const body = await req.json()
     const { id, name, bpm, seed, patternEnabled, steps, samples } = body
 
@@ -49,7 +59,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 })
     }
 
-    // Upsert the project
     const project = await db.project.upsert({
       where: { id: id ?? 'new' },
       create: {
@@ -66,7 +75,6 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // If steps are provided, replace all existing steps for this project
     if (steps && Array.isArray(steps)) {
       await db.patternStep.deleteMany({ where: { projectId: project.id } })
       for (const s of steps) {
