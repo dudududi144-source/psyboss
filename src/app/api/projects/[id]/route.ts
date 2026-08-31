@@ -1,9 +1,6 @@
 /**
  * PSYBOSS single project API.
- * GET /api/projects/[id] — load a project with all steps + samples.
- * DELETE /api/projects/[id] — delete a project.
- *
- * Static export guard: returns 503 when NEXT_PUBLIC_STATIC=true.
+ * Static export safe: NO database import at module level.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,6 +17,11 @@ function jsonSafe(data: unknown): unknown {
   return JSON.parse(JSON.stringify(data, bigIntReplacer))
 }
 
+async function getDb() {
+  const { db } = await import('@/lib/db')
+  return db
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -28,7 +30,7 @@ export async function GET(
     return NextResponse.json({ error: 'Project persistence is disabled in demo mode' }, { status: 503 })
   }
   try {
-    const { db } = await import('@/lib/db')
+    const db = await getDb()
     const { id } = await params
     const project = await db.project.findUnique({
       where: { id },
@@ -54,7 +56,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Project persistence is disabled in demo mode' }, { status: 503 })
   }
   try {
-    const { db } = await import('@/lib/db')
+    const db = await getDb()
     const { id } = await params
     await db.project.delete({ where: { id } })
     return NextResponse.json({ ok: true })
