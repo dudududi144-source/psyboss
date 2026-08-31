@@ -10,6 +10,7 @@
  *   - PsyDrumAdapter (PsyDevice-conformant drum machine)
  *   - PsySynthAdapter (canonical subtractive synth)
  *   - MidiAdapter (Web MIDI bridge)
+ *   - WebRTCAdapter (P2P multi-performer sync)
  */
 
 export { DeviceAdapter, type DeviceAdapterOptions, type AdapterTelemetry } from './device-adapter'
@@ -17,3 +18,9 @@ export { PsySynthProAdapter, createPsySynthProAdapter } from './psy-synth-pro-ad
 export { PsyDrumAdapter, createPsyDrumAdapter } from './psy-drum-adapter'
 export { PsySynthAdapter, createPsySynthAdapter } from './psy-synth-adapter'
 export { MidiAdapter, createMidiAdapter, type MidiAdapterOptions } from './midi-adapter'
+export {
+  WebRTCAdapter,
+  createWebRTCAdapter,
+  type WebRTCAdapterOptions,
+  type ConnectionStatus,
+} from './webrtc-adapter'
