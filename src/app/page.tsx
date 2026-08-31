@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, memo } from 'react'
-import { usePsyBoss, useMeter, usePattern, STEPS_PER_BAR } from '@/psyboss/store'
+import { usePsyBoss, useMeter, usePattern, useDevices, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
 import type { TrigCondition } from '@/psyboss/engine/lfsr'
 import { Button } from '@/components/ui/button'
@@ -597,9 +597,11 @@ function ProjectPanel() {
 
 // ── DEVICES PANEL (Scope 3: PSYBUS device adapters) ─────────────────────
 function DevicesPanel() {
+  const devices = useDevices((s) => s.devices)
+  const connect = useDevices((s) => s.connect)
+  const disconnect = useDevices((s) => s.disconnect)
   const [midiSupported, setMidiSupported] = useState<boolean | null>(null)
   const [midiDevices, setMidiDevices] = useState<Array<{ id: string; name: string; type: string }>>([])
-  const [connectedAdapters, setConnectedAdapters] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     // Check Web MIDI support
@@ -635,44 +637,24 @@ function DevicesPanel() {
   }, [])
 
   const toggleAdapter = (id: string) => {
-    setConnectedAdapters((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+    const device = devices.find((d) => d.id === id)
+    if (!device) return
+    if (device.status === 'connected') {
+      disconnect(id)
+    } else if (device.status === 'disconnected' || device.status === 'error') {
+      connect(id)
+    }
   }
 
-  const adapters = [
-    {
-      id: 'psysynthpro',
-      name: 'PsySynthPro',
-      description: '16-voice DSP synthesizer (PolyBLEP + wavetable + FM)',
-      status: 'available' as const,
-      icon: <Zap className="w-4 h-4" />,
-    },
-    {
-      id: 'psydrum',
-      name: 'psydrum',
-      description: 'PsyDevice-conformant drum machine (voice pool + choke)',
-      status: 'available' as const,
-      icon: <Radio className="w-4 h-4" />,
-    },
-    {
-      id: 'midi',
-      name: 'Web MIDI',
-      description: 'MIDI input/output + 24-ppq clock sync',
-      status: midiSupported ? 'available' as const : 'unsupported' as const,
-      icon: <Keyboard className="w-4 h-4" />,
-    },
-    {
-      id: 'webrtc',
-      name: 'WebRTC P2P',
-      description: 'Multi-performer sync (coming in Scope 3)',
-      status: 'coming-soon' as const,
-      icon: <Activity className="w-4 h-4" />,
-    },
-  ]
+  const getAdapterIcon = (id: string) => {
+    switch (id) {
+      case 'psysynthpro': return <Zap className="w-4 h-4" />
+      case 'psydrum': return <Radio className="w-4 h-4" />
+      case 'midi': return <Keyboard className="w-4 h-4" />
+      case 'webrtc': return <Activity className="w-4 h-4" />
+      default: return <Cable className="w-4 h-4" />
+    }
+  }
 
   return (
     <Card className="border-border/60 bg-card/40 p-3 md:p-4">
@@ -686,10 +668,10 @@ function DevicesPanel() {
       </div>
 
       <div className="grid gap-2">
-        {adapters.map((adapter) => {
-          const connected = connectedAdapters.has(adapter.id)
-          const isAvailable = adapter.status === 'available'
-          const isComingSoon = adapter.status === 'coming-soon'
+        {devices.map((adapter) => {
+          const connected = adapter.status === 'connected'
+          const connecting = adapter.status === 'connecting'
+          const isAvailable = adapter.status !== 'coming-soon' && adapter.status !== 'unsupported'
 
           return (
             <div
@@ -697,32 +679,46 @@ function DevicesPanel() {
               className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-all ${
                 connected
                   ? 'border-emerald-500/50 bg-emerald-500/10'
+                  : adapter.status === 'error'
+                  ? 'border-red-500/50 bg-red-500/5'
                   : 'border-border/40 bg-background/20'
-              } ${!isAvailable && !isComingSoon ? 'opacity-50' : ''}`}
+              } ${!isAvailable ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-md ${connected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-foreground/5 text-muted-foreground'}`}>
-                  {adapter.icon}
+                  {getAdapterIcon(adapter.id)}
                 </div>
                 <div>
-                  <div className="font-mono text-xs font-bold">{adapter.name}</div>
+                  <div className="font-mono text-xs font-bold flex items-center gap-2">
+                    {adapter.name}
+                    {connecting && (
+                      <span className="text-[9px] text-amber-400 animate-pulse">CONNECTING...</span>
+                    )}
+                    {connected && (
+                      <span className="text-[9px] text-emerald-400">● LIVE</span>
+                    )}
+                  </div>
                   <div className="text-[10px] text-muted-foreground/70">{adapter.description}</div>
+                  {adapter.error && (
+                    <div className="text-[9px] text-red-400/80 mt-0.5 font-mono">{adapter.error}</div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {adapter.status === 'coming-soon' && (
+                  <Badge variant="outline" className="font-mono text-[9px] text-amber-400 border-amber-400/30">
+                    SOON
+                  </Badge>
+                )}
                 {adapter.status === 'unsupported' && (
                   <Badge variant="outline" className="font-mono text-[9px] text-red-400 border-red-400/30">
                     NOT SUPPORTED
                   </Badge>
                 )}
-                {isComingSoon && (
-                  <Badge variant="outline" className="font-mono text-[9px] text-amber-400 border-amber-400/30">
-                    SOON
-                  </Badge>
-                )}
                 {isAvailable && (
                   <Switch
                     checked={connected}
+                    disabled={connecting}
                     onCheckedChange={() => toggleAdapter(adapter.id)}
                     aria-label={`Connect ${adapter.name}`}
                   />
