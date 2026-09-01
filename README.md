@@ -42,6 +42,14 @@ The mastering chain implements ITU-R BS.1770-4:
 - Lookahead true-peak limiter (holds the OVERSAMPLED peak at the ceiling)
 - Loudness normalization to target, with a before/after measurement report
 
+## Arrangement (Scope 4)
+
+Sequence the current pattern into a full track structure via the **Arrange** tab:
+- Add sections (Intro / Build / Drop / Break / Outro) of 4/8/16/32 bars
+- Timeline visualization with per-clip labels
+- Overlap detection (clips must not collide)
+- Export the full arrangement as one mastered WAV (applies the selected mastering preset)
+
 
 ## Documents
 
