@@ -39,6 +39,9 @@ jobs:
         env:
           DATABASE_URL: "file:./dummy.db"
 
+      - name: Run test suite
+        run: bun test tests/psyboss/ 2>&1
+
       - name: Remove API routes for static build
         run: |
           echo "Removing API routes (not supported in static export)..."
