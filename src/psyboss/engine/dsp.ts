@@ -280,6 +280,93 @@ class ResonantLP {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERN DSP CORE — the upgrade that moves PSYBOSS off "dated" synthesis.
+// ZDF-style Moog ladder filter (warm 24dB/oct resonance), proper ADSR envelopes,
+// and multi-voice supersaw unison — the building blocks of contemporary
+// analog-modeling synths (the Serum / Diva class of sound).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ZDF-style Moog LADDER FILTER — the warm, resonant "analog" voice of modern
+ * psytrance. Four cascaded one-pole lowpasses with a resonance feedback path
+ * (scaled ×0.25 to stay stable at any setting), yielding the classic musical
+ * 24dB/oct sweep. Far richer than a one-pole or basic SVF.
+ */
+class LadderFilter {
+  private s = [0, 0, 0, 0]
+  private g: number
+  private k: number
+  constructor(sampleRate: number, cutoffHz: number, resonance: number) {
+    this.setCutoff(cutoffHz, sampleRate)
+    this.k = Math.min(Math.max(resonance, 0), 3.9)
+  }
+  setCutoff(hz: number, sampleRate: number): void {
+    const f = Math.min(Math.max(hz, 1), sampleRate * 0.45)
+    this.g = 1 - Math.exp((-2 * Math.PI * f) / sampleRate)
+  }
+  setResonance(res: number): void {
+    this.k = Math.min(Math.max(res, 0), 3.9)
+  }
+  process(x: number): number {
+    const fb = this.s[3] * this.k * 0.25
+    let v = x - fb
+    for (let i = 0; i < 4; i++) {
+      this.s[i] = flushDenormal(this.s[i] + this.g * (v - this.s[i]))
+      v = this.s[i]
+    }
+    return this.s[3]
+  }
+}
+
+/**
+ * ADSR envelope — attack/decay/release in seconds, sustain 0..1. Replaces the
+ * flat AR curves for proper modern amplitude shaping.
+ */
+function adsr(t: number, a: number, d: number, s: number, r: number, dur: number): number {
+  if (t < a) return t / Math.max(a, 1e-6)
+  if (t < a + d) return 1 - (1 - s) * ((t - a) / Math.max(d, 1e-6))
+  const relStart = dur - r
+  if (t < relStart) return s
+  return s * Math.max(0, 1 - (t - relStart) / Math.max(r, 1e-6))
+}
+
+/**
+ * SUPERSAW — N detuned band-limited saw voices summed and normalized. This is
+ * THE modern lead/pad texture (the wide, beating "big" sound). Per-voice pan
+ * spread is returned via the optional stereo handler for width.
+ */
+function supersawSample(
+  phases: Float32Array,
+  incs: Float32Array,
+  nVoices: number,
+): number {
+  let sum = 0
+  for (let v = 0; v < nVoices; v++) {
+    phases[v] += incs[v]
+    phases[v] -= Math.floor(phases[v])
+    sum += phases[v] * 2 - 1 + polyblepSaw(phases[v], incs[v])
+  }
+  return sum / nVoices
+}
+
+/** Build detuned voice increments for a supersaw at a base frequency. */
+function makeSupersawIncs(
+  freq: number,
+  nVoices: number,
+  detuneCents: number,
+  sampleRate: number,
+): { phases: Float32Array; incs: Float32Array } {
+  const phases = new Float32Array(nVoices)
+  const incs = new Float32Array(nVoices)
+  for (let v = 0; v < nVoices; v++) {
+    const spread = nVoices > 1 ? (v / (nVoices - 1)) * 2 - 1 : 0 // -1..1
+    const cents = spread * detuneCents
+    incs[v] = (freq * Math.pow(2, cents / 1200)) / sampleRate
+  }
+  return { phases, incs }
+}
+
 /**
  * PSY LEAD — the squelchy, resonant lead that defines psytrance.
  * Saw + square blend through a resonant lowpass whose cutoff opens then closes
@@ -296,39 +383,39 @@ export function renderLead(sampleRate: number, variant: number, seed: number): S
   const intervals = [1, 1.5, 2, 3][variant] ?? 1 // root, fifth, octave, octave+fifth
   const freq = root * intervals
 
-  const res = [1.3, 1.6, 1.1, 1.8][variant] ?? 1.4
-  const fStart = [1800, 2400, 1400, 3000][variant] ?? 2000
-  const fEnd = [300, 400, 250, 500][variant] ?? 350
-  const fDecaySec = [0.28, 0.34, 0.22, 0.4][variant] ?? 0.3
-  const fmAmount = [0, 80, 30, 140][variant] ?? 60
-  const detune = [0, 4, 2, 7][variant] ?? 3
+  // MODERN: 7-voice supersaw, per-variant detune width.
+  const nVoices = 7
+  const detuneCents = [18, 30, 14, 42][variant] ?? 24
 
-  const inc = freq / sampleRate
-  const inc2 = (freq * Math.pow(2, detune / 1200)) / sampleRate
+  // MODERN: ZDF ladder resonance (higher Q than the old SVF) + ADSR + drive.
+  const res = [2.2, 2.8, 1.8, 3.2][variant] ?? 2.5
+  const fStart = [2400, 3200, 1800, 4000][variant] ?? 2800
+  const fEnd = [280, 380, 240, 480][variant] ?? 340
+  const fDecaySec = [0.28, 0.34, 0.22, 0.4][variant] ?? 0.3
+  const attack = 0.004
+  const decay = 0.12
+  const sustain = 0.55
+  const release = 0.25
+
+  const { phases, incs } = makeSupersawIncs(freq, nVoices, detuneCents, sampleRate)
+  const filt = new LadderFilter(sampleRate, fStart, res)
   const dc = new DcBlocker(sampleRate)
-  const filt = new ResonantLP(sampleRate, fStart, res)
-  let ph1 = 0
-  let ph2 = 0
-  let phFm = 0
+
   for (let i = 0; i < n; i++) {
     const t = i / sampleRate
+    // Supersaw source (wide, beating, modern).
+    const raw = supersawSample(phases, incs, nVoices)
+    // Filter envelope (the squelch): ladder opens then closes.
     const fEnv = Math.exp(-t / fDecaySec)
-    const cutoff = fEnd + (fStart - fEnd) * fEnv
-    filt.setCutoff(cutoff, sampleRate)
-    phFm += ((freq * 2.01) / sampleRate) * TAU
-    const fm = Math.sin(phFm) * (fmAmount / sampleRate) * fEnv
-    ph1 += inc * TAU + fm
-    ph2 += inc2 * TAU + fm
-    let sawPh = (ph1 / TAU) % 1
-    if (sawPh < 0) sawPh += 1
-    const saw = sawPh * 2 - 1 + polyblepSaw(sawPh, inc)
-    const sq = Math.sin(ph2) > 0 ? 0.5 : -0.5
-    const raw = saw * 0.65 + sq * 0.35
+    filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
     const filtered = filt.process(raw)
-    const amp = envAR(t, 0.004, 0.3, 0.5)
-    const sample = dc.process(saturate(filtered * amp * 2.2))
+    // ADSR amplitude.
+    const amp = adsr(t, attack, decay, sustain, release, dur)
+    // Drive: tanh saturation adds warm harmonics.
+    const driven = Math.tanh(filtered * 2.4)
+    const sample = dc.process(driven * amp * 1.7)
     left[i] = clamp(sample)
-    right[i] = clamp(sample * 0.96)
+    right[i] = clamp(sample * 0.94)
   }
   return { left, right, sampleRate }
 }
@@ -384,30 +471,33 @@ export function renderPad(sampleRate: number, variant: number, seed: number): St
   const root = 110 // A2
   const intervals = [1, 1.5, 1.335, 2][variant] ?? 1
   const freq = root * intervals
-  const detCents = [8, 12, 6, 15][variant] ?? 10
-  const lpHz = [900, 1200, 750, 1500][variant] ?? 1000
 
-  const incL = (freq * Math.pow(2, -detCents / 1200)) / sampleRate
-  const incR = (freq * Math.pow(2, detCents / 1200)) / sampleRate
-  const incC = freq / sampleRate
+  // MODERN: lush 5-voice supersaw, L/R detuned independently for stereo width.
+  const nVoices = 5
+  const detuneCents = [14, 22, 10, 28][variant] ?? 18
+  const lpHz = [1100, 1500, 900, 1900][variant] ?? 1200
+
+  const SL = makeSupersawIncs(freq, nVoices, detuneCents, sampleRate)
+  const SR = makeSupersawIncs(freq, nVoices, detuneCents * 1.15, sampleRate)
+  const filtL = new LadderFilter(sampleRate, lpHz, 0.6)
+  const filtR = new LadderFilter(sampleRate, lpHz * 1.06, 0.6)
   const dcL = new DcBlocker(sampleRate)
   const dcR = new DcBlocker(sampleRate)
-  const filtL = new ResonantLP(sampleRate, lpHz, 0.5)
-  const filtR = new ResonantLP(sampleRate, lpHz * 1.05, 0.5)
-  let phL = 0, phR = 0, phC = 0
+
+  const attack = 0.2
+  const decay = 0.3
+  const sustain = 0.7
+  const release = 0.4
+
   for (let i = 0; i < n; i++) {
     const t = i / sampleRate
-    phL += incL; phL -= Math.floor(phL)
-    phR += incR; phR -= Math.floor(phR)
-    phC += incC; phC -= Math.floor(phC)
-    const sL = phL * 2 - 1 + polyblepSaw(phL, incL)
-    const sR = phR * 2 - 1 + polyblepSaw(phR, incR)
-    const sC = phC * 2 - 1 + polyblepSaw(phC, incC)
-    const amp = envAR(t, 0.18, 0.7, 0.3)
-    const l = dcL.process(filtL.process((sL * 0.6 + sC * 0.4) * amp))
-    const r = dcR.process(filtR.process((sR * 0.6 + sC * 0.4) * amp))
-    left[i] = clamp(l)
-    right[i] = clamp(r)
+    const rawL = supersawSample(SL.phases, SL.incs, nVoices)
+    const rawR = supersawSample(SR.phases, SR.incs, nVoices)
+    const filteredL = filtL.process(rawL)
+    const filteredR = filtR.process(rawR)
+    const amp = adsr(t, attack, decay, sustain, release, dur) * 0.5
+    left[i] = clamp(dcL.process(filteredL * amp))
+    right[i] = clamp(dcR.process(filteredR * amp))
   }
   return { left, right, sampleRate }
 }
@@ -496,30 +586,41 @@ export function renderRollBass(sampleRate: number, variant: number, seed: number
   const root = 55 // A1
   const intervals = [1, 1, 1.5, 2][variant] ?? 1
   const freq = root * intervals
-  const res = [1.1, 1.4, 0.9, 1.6][variant] ?? 1.2
-  const fStart = [700, 900, 600, 1100][variant] ?? 800
-  const fEnd = [180, 220, 160, 260][variant] ?? 200
+  // MODERN: higher ladder resonance for an aggressive, audible mid growl.
+  const res = [2.0, 2.6, 1.6, 3.0][variant] ?? 2.3
+  const fStart = [900, 1200, 750, 1500][variant] ?? 1050
+  const fEnd = [200, 250, 180, 300][variant] ?? 230
   const fDecaySec = 0.09
 
   const inc = freq / sampleRate
   const dc = new DcBlocker(sampleRate)
-  const filt = new ResonantLP(sampleRate, fStart, res)
+  const filt = new LadderFilter(sampleRate, fStart, res)
   let ph = 0
+  let subPh = 0
   for (let i = 0; i < n; i++) {
     const t = i / sampleRate
     const fEnv = Math.exp(-t / fDecaySec)
     filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
+    // Resonant saw — the growl (ladder filter emphasizes harmonics so it stays
+    // audible even on small speakers).
     ph += inc
     ph -= Math.floor(ph)
     const saw = ph * 2 - 1 + polyblepSaw(ph, inc)
     const filtered = filt.process(saw)
+    // Sub sine layer — the low-end weight.
+    subPh += inc
+    const sub = Math.sin(subPh * TAU) * 0.5
     const amp = envAR(t, 0.002, 0.12, 0.85)
-    const sample = dc.process(saturate(filtered * amp * 1.9))
+    // MODERN: stronger tanh drive for warmth + harmonics.
+    const mix = filtered * 0.85 + sub
+    const driven = Math.tanh(mix * 2.2)
+    const sample = dc.process(driven * amp * 1.7)
     left[i] = clamp(sample)
     right[i] = clamp(sample)
   }
   return { left, right, sampleRate }
 }
+
 
 const RENDERERS = [
   renderKick,
