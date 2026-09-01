@@ -27,6 +27,7 @@ import {
   STEPS_PER_BAR,
 } from './engine/sequencer'
 import type { TrigCondition } from './engine/lfsr'
+import { PSY_PRESETS } from './engine/presets'
 import { renderOffline } from './engine/offline-render'
 import {
   MASTERING_PRESETS,
@@ -115,6 +116,7 @@ export interface PatternStore {
   setStepSample: (step: number, sampleRef: import('@/psybus/types').SampleRef | null) => void
   setSelectedTrack: (t: number) => void
   clearPattern: () => void
+  loadPreset: (presetId: string) => void
 }
 
 const SEED = 0x9e3779b9
@@ -402,6 +404,21 @@ export const usePattern = create<PatternStore>((set, get) => ({
     set({ pattern: next })
     if (engine && usePsyBoss.getState().patternEnabled) {
       engine.setPattern(next)
+    }
+  },
+
+  loadPreset: (presetId: string) => {
+    const preset = PSY_PRESETS.find((p) => p.id === presetId)
+    if (!preset) return
+    const pattern = preset.build()
+    set({ pattern, selectedTrack: 0 })
+    // Presets carry their genre-appropriate tempo.
+    usePsyBoss.setState({ bpm: preset.bpm })
+    if (engine) {
+      engine.setBpm(preset.bpm)
+      if (usePsyBoss.getState().patternEnabled) {
+        engine.setPattern(pattern)
+      }
     }
   },
 }))
