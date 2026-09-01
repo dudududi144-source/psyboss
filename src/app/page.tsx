@@ -253,18 +253,27 @@ function RenderPanel() {
   const renderStems = usePsyBoss((s) => s.renderStems)
   const bpm = usePsyBoss((s) => s.bpm)
   const patternEnabled = usePsyBoss((s) => s.patternEnabled)
+  const masteringPreset = usePsyBoss((s) => s.masteringPreset)
+  const setMasteringPreset = usePsyBoss((s) => s.setMasteringPreset)
+  const masteringReport = usePsyBoss((s) => s.masteringReport)
+
+  const presets = [
+    { id: 'off', label: 'Off', desc: 'Raw render, no mastering', target: '' },
+    { id: 'club', label: 'Club', desc: '-8 LUFS · -0.1 dBTP', target: 'Beatport / DJ' },
+    { id: 'streaming', label: 'Streaming', desc: '-14 LUFS · -1 dBTP', target: 'Spotify / YouTube' },
+  ] as const
 
   return (
     <Card className="border-border/60 bg-card/40 p-4">
       <div className="flex items-center gap-2 mb-3">
         <FileAudio className="w-4 h-4 text-emerald-400" />
         <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
-          Offline Render
+          Offline Render + Mastering
         </h3>
       </div>
       <p className="text-[11px] text-muted-foreground/70 mb-3">
-        Renders the current pattern to 16-bit WAV via <span className="font-mono text-emerald-400">OfflineAudioContext</span>.
-        Deterministic: same seed → byte-identical output. Master = all tracks mixed; Stems = per-track.
+        Renders the pattern to 16-bit WAV via <span className="font-mono text-emerald-400">OfflineAudioContext</span>,
+        then optionally masters it to a loudness target (ITU-R BS.1770 LUFS + true-peak limiting).
       </p>
 
       {!patternEnabled && (
@@ -272,6 +281,31 @@ function RenderPanel() {
           ⚠ Pattern playback is OFF — enable it in the Step Sequencer tab to render the pattern.
         </div>
       )}
+
+      {/* Mastering preset selector */}
+      <div className="mb-3">
+        <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+          Mastering Target
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setMasteringPreset(p.id)}
+              className={`p-2 rounded-lg border transition-all text-left ${
+                masteringPreset === p.id
+                  ? 'border-emerald-500/60 bg-emerald-500/10'
+                  : 'border-border/40 bg-background/20 hover:border-border'
+              }`}
+            >
+              <div className={`font-mono text-[11px] font-bold ${masteringPreset === p.id ? 'text-emerald-400' : 'text-foreground/80'}`}>
+                {p.label}
+              </div>
+              <div className="text-[9px] text-muted-foreground/70 mt-0.5 font-mono">{p.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
         <Button
@@ -313,7 +347,7 @@ function RenderPanel() {
 
       {rendering && (
         <div className="text-[11px] font-mono text-emerald-400 animate-pulse">
-          Rendering... (offline, no real-time wait)
+          Rendering{masteringPreset !== 'off' ? ' + mastering' : ''}... (offline, no real-time wait)
         </div>
       )}
       {renderError && (
@@ -324,6 +358,32 @@ function RenderPanel() {
       {lastRenderInfo && !rendering && (
         <div className="text-[11px] font-mono text-muted-foreground">
           ✓ {lastRenderInfo} · @ {bpm} BPM
+        </div>
+      )}
+
+      {/* Mastering report (Scope 4) */}
+      {masteringReport && masteringPreset !== 'off' && !rendering && (
+        <div className="mt-3 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 mb-2">
+            Mastering Report
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono">
+            <div className="text-muted-foreground">Loudness (before)</div>
+            <div className="text-right tabular-nums">{masteringReport.preIntegratedLufs.toFixed(1)} LUFS</div>
+            <div className="text-muted-foreground">Loudness (after)</div>
+            <div className="text-right tabular-nums text-emerald-400">{masteringReport.postIntegratedLufs.toFixed(1)} LUFS</div>
+            <div className="text-muted-foreground">True peak (before)</div>
+            <div className="text-right tabular-nums">{masteringReport.preTruePeakDb.toFixed(1)} dBTP</div>
+            <div className="text-muted-foreground">True peak (after)</div>
+            <div className="text-right tabular-nums text-emerald-400">{masteringReport.postTruePeakDb.toFixed(1)} dBTP</div>
+            <div className="text-muted-foreground">Gain applied</div>
+            <div className="text-right tabular-nums">{masteringReport.appliedGainDb >= 0 ? '+' : ''}{masteringReport.appliedGainDb.toFixed(1)} dB</div>
+          </div>
+          {masteringReport.limited && (
+            <div className="mt-2 text-[9px] font-mono text-emerald-400/70">
+              ✓ True peak held at ceiling — safe for DAC playback
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -1349,7 +1409,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.7 · MIT
+            PSYBOSS · v0.8 · MIT
           </div>
         </div>
       </footer>
