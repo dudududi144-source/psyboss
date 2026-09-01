@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, memo } from 'react'
-import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, useArrangement, STEPS_PER_BAR } from '@/psyboss/store'
+import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, useArrangement, useReference, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
 import type { TrigCondition } from '@/psyboss/engine/lfsr'
 import { Button } from '@/components/ui/button'
@@ -245,6 +245,93 @@ function StepSequencer() {
 }
 
 // ── Render & Export panel (Scope 3) ──────────────────────────────────────────
+
+// ── A/B REFERENCE PANEL (Scope 4: loudness-matched comparison) ───────────
+function ABReferencePanel({ myMasterLufs }: { myMasterLufs: number | null }) {
+  const reference = useReference((s) => s.reference)
+  const comparison = useReference((s) => s.comparison)
+  const analyzing = useReference((s) => s.analyzing)
+  const error = useReference((s) => s.error)
+  const loadReference = useReference((s) => s.loadReference)
+  const compare = useReference((s) => s.compare)
+  const clear = useReference((s) => s.clear)
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) loadReference(file)
+  }
+
+  return (
+    <div className="mt-3 p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-400">
+          A/B Reference (loudness-matched)
+        </div>
+        {reference && (
+          <button onClick={clear} className="text-[9px] font-mono text-muted-foreground hover:text-red-400 transition-colors">
+            clear
+          </button>
+        )}
+      </div>
+
+      {!reference && (
+        <label className="flex items-center justify-center gap-2 p-3 rounded-md border border-dashed border-cyan-500/30 cursor-pointer hover:border-cyan-500/60 transition-colors">
+          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {analyzing ? 'Analyzing reference...' : 'Upload a reference track (.wav/.mp3)'}
+          </span>
+          <input type="file" accept="audio/*" onChange={handleFile} disabled={analyzing} className="hidden" />
+        </label>
+      )}
+
+      {reference && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono">
+            <div className="text-muted-foreground truncate">{reference.name}</div>
+            <div className="text-right tabular-nums">{reference.durationSec.toFixed(0)}s</div>
+            <div className="text-muted-foreground">Reference loudness</div>
+            <div className="text-right tabular-nums text-cyan-400">{reference.lufs.integrated.toFixed(1)} LUFS</div>
+            <div className="text-muted-foreground">Reference true peak</div>
+            <div className="text-right tabular-nums">{reference.truePeakDb.toFixed(1)} dBTP</div>
+          </div>
+
+          <Button
+            onClick={() => myMasterLufs !== null && compare(myMasterLufs)}
+            disabled={myMasterLufs === null}
+            size="sm"
+            variant="outline"
+            className="w-full font-mono text-[10px]"
+          >
+            {myMasterLufs === null
+              ? 'Master a track first to compare'
+              : `Compare to my master (${myMasterLufs.toFixed(1)} LUFS)`}
+          </Button>
+
+          {comparison && (
+            <div className="p-2 rounded-md bg-background/40 border border-border/40 text-[10px] font-mono">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div className="text-muted-foreground">Δ loudness</div>
+                <div className={`text-right tabular-nums ${Math.abs(comparison.deltaLu) <= 1 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {comparison.deltaLu >= 0 ? '+' : ''}{comparison.deltaLu.toFixed(1)} LU
+                </div>
+                <div className="text-muted-foreground">Gain to match</div>
+                <div className="text-right tabular-nums">
+                  {comparison.gainToMatchDb >= 0 ? '+' : ''}{comparison.gainToMatchDb.toFixed(1)} dB
+                </div>
+              </div>
+              <div className="mt-1.5 text-muted-foreground/80">{comparison.verdict}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-2 text-[10px] font-mono text-red-400">{error}</div>
+      )}
+    </div>
+  )
+}
+
 function RenderPanel() {
   const rendering = usePsyBoss((s) => s.rendering)
   const renderError = usePsyBoss((s) => s.renderError)
@@ -386,6 +473,8 @@ function RenderPanel() {
           )}
         </div>
       )}
+
+      <ABReferencePanel myMasterLufs={masteringReport?.postIntegratedLufs ?? null} />
     </Card>
   )
 }
@@ -1561,7 +1650,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.9 · MIT
+            PSYBOSS · v1.0 · MIT
           </div>
         </div>
       </footer>
