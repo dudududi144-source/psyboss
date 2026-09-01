@@ -131,7 +131,7 @@ async function renderTrackRaw(args: {
 
   // Master bus (mirrors live graph).
   const masterGain = ctx.createGain()
-  masterGain.gain.value = 0.8
+  masterGain.gain.value = 0.92
   const limiter = ctx.createDynamicsCompressor()
   limiter.threshold.value = -1.0
   limiter.knee.value = 0
@@ -145,7 +145,7 @@ async function renderTrackRaw(args: {
   const trackGains: GainNode[] = []
   for (let t = 0; t < pattern.tracks.length; t++) {
     const g = ctx.createGain()
-    g.gain.value = 0.75
+    g.gain.value = 0.95
     g.connect(masterGain)
     trackGains.push(g)
   }
