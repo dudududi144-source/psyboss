@@ -117,7 +117,9 @@ async function renderTrackRaw(args: {
   samples?: Map<string, AudioBuffer>
 }): Promise<RawRender> {
   const { pattern, seed, bpm, bars, sampleRate, soloTrack, duration, samples } = args
-  const length = Math.ceil(duration * sampleRate)
+  // +1.6s tail so the delay/reverb tails of the last hits ring out naturally.
+  const FX_TAIL_SEC = 1.6
+  const length = Math.ceil((duration + FX_TAIL_SEC) * sampleRate)
   const ctx = new OfflineAudioContext(2, length, sampleRate)
 
   // Sound bank (deterministic — same seed → same buffers).
