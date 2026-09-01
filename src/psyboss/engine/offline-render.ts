@@ -16,6 +16,7 @@
  */
 
 import { renderSoundBank, dspProvenance } from './dsp'
+import { mulberry32 } from './rng'
 import { collectScheduledSteps, type Pattern, STEPS_PER_BAR } from './sequencer'
 import { encodeWav } from './wav-encoder'
 import {
@@ -138,7 +139,50 @@ async function renderTrackRaw(args: {
   limiter.ratio.value = 20
   limiter.attack.value = 0.003
   limiter.release.value = 0.05
-  masterGain.connect(limiter)
+  masterGain.connect(limiter) // dry
+
+  // ── Effects bus (mirror of the live audio-engine graph) ──
+  // Stereo tempo delay + convolver reverb, summed into the limiter so the
+  // exported WAV sounds produced and spacious, not dry.
+  const delaySend = ctx.createGain()
+  delaySend.gain.value = 0.26
+  const dTime = 0.34
+  const delayL = ctx.createDelay(2.0)
+  delayL.delayTime.value = dTime
+  const delayR = ctx.createDelay(2.0)
+  delayR.delayTime.value = dTime * 0.75
+  const fbL = ctx.createGain()
+  fbL.gain.value = 0.38
+  const fbR = ctx.createGain()
+  fbR.gain.value = 0.38
+  const dampL = ctx.createBiquadFilter()
+  dampL.type = 'lowpass'
+  dampL.frequency.value = 2800
+  const dampR = ctx.createBiquadFilter()
+  dampR.type = 'lowpass'
+  dampR.frequency.value = 2800
+  masterGain.connect(delaySend)
+  delaySend.connect(delayL)
+  delaySend.connect(delayR)
+  delayL.connect(dampL)
+  dampL.connect(fbL)
+  fbL.connect(delayL)
+  delayR.connect(dampR)
+  dampR.connect(fbR)
+  fbR.connect(delayR)
+  const delayMerge = ctx.createChannelMerger(2)
+  delayL.connect(delayMerge, 0, 0)
+  delayR.connect(delayMerge, 0, 1)
+  delayMerge.connect(limiter)
+
+  const reverbSend = ctx.createGain()
+  reverbSend.gain.value = 0.16
+  const convolver = ctx.createConvolver()
+  convolver.buffer = makeReverbIR(ctx, 2.4, seed)
+  masterGain.connect(reverbSend)
+  reverbSend.connect(convolver)
+  convolver.connect(limiter)
+
   limiter.connect(ctx.destination)
 
   // Per-track gains.
@@ -293,4 +337,20 @@ export async function renderArrangement(opts: {
     clipCount: sortedClips.length,
     masteringReport,
   }
+}
+
+/** Generate a deterministic stereo reverb impulse response (decaying noise). */
+function makeReverbIR(ctx: OfflineAudioContext, duration: number, seed: number): AudioBuffer {
+  const rate = ctx.sampleRate
+  const length = Math.floor(rate * duration)
+  const impulse = ctx.createBuffer(2, length, rate)
+  const rng = mulberry32((0x5eed ^ seed) >>> 0)
+  for (let ch = 0; ch < 2; ch++) {
+    const data = impulse.getChannelData(ch)
+    for (let i = 0; i < length; i++) {
+      const decay = Math.pow(1 - i / length, 2.8)
+      data[i] = (rng() * 2 - 1) * decay * 0.5
+    }
+  }
+  return impulse
 }
