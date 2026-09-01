@@ -23,6 +23,7 @@ import {
   type MasteringTargets,
   type MasteringReport,
 } from './mastering'
+import type { Arrangement } from './arrangement'
 
 export interface RenderOptions {
   pattern: Pattern
@@ -215,4 +216,81 @@ export function renderFingerprint(opts: RenderOptions): string {
 /** Provenance for a rendered WAV (so exported files carry their source). */
 export function renderProvenance(opts: RenderOptions) {
   return dspProvenance(renderFingerprint(opts), opts.seed)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arrangement rendering (Scope 4) — full-length track from a clip timeline
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ArrangementRenderResult {
+  master: Uint8Array // full-length WAV
+  durationSec: number
+  clipCount: number
+  masteringReport?: MasteringReport
+}
+
+/**
+ * Render an arrangement to a single full-length WAV.
+ *
+ * Walks the clips in startBar order, renders each pattern for its lengthBars at
+ * the clip's (or arrangement's) bpm/seed, then concatenates the raw stereo audio
+ * into one continuous buffer. Optionally masters the result.
+ *
+ * Deterministic: same arrangement + seeds → byte-identical output.
+ */
+export async function renderArrangement(opts: {
+  arrangement: Arrangement
+  sampleRate?: number
+  samples?: Map<string, AudioBuffer>
+  mastering?: MasteringTargets
+}): Promise<ArrangementRenderResult> {
+  if (typeof window === 'undefined') {
+    throw new Error('renderArrangement requires a browser (OfflineAudioContext)')
+  }
+  const { arrangement } = opts
+  const sampleRate = opts.sampleRate ?? 48000
+
+  // Render each clip to raw float audio, in timeline order.
+  const sortedClips = [...arrangement.clips].sort((a, b) => a.startBar - b.startBar)
+  const rendered: Array<{ left: Float32Array; right: Float32Array }> = []
+  for (const clip of sortedClips) {
+    const clipBpm = clip.bpm ?? arrangement.bpm
+    const clipSeed = clip.seed ?? arrangement.seed
+    const raw = await renderTrackRaw({
+      pattern: clip.pattern,
+      seed: clipSeed,
+      bpm: clipBpm,
+      bars: clip.lengthBars,
+      sampleRate,
+      soloTrack: -1,
+      duration: clip.lengthBars * ((60 / clipBpm) * 4),
+      samples: opts.samples,
+    })
+    rendered.push(raw)
+  }
+
+  // Concatenate all clips into one buffer.
+  const totalLen = rendered.reduce((acc, r) => acc + r.left.length, 0)
+  const left = new Float32Array(totalLen)
+  const right = new Float32Array(totalLen)
+  let offset = 0
+  for (const r of rendered) {
+    left.set(r.left, offset)
+    right.set(r.right, offset)
+    offset += r.left.length
+  }
+
+  // Optional mastering.
+  let masteringReport: MasteringReport | undefined
+  if (opts.mastering) {
+    masteringReport = masterBuffer(left, right, sampleRate, opts.mastering)
+  }
+
+  const master = encodeWav({ left, right, sampleRate })
+  return {
+    master,
+    durationSec: totalLen / sampleRate,
+    clipCount: sortedClips.length,
+    masteringReport,
+  }
 }
