@@ -41,6 +41,8 @@ The mastering chain implements ITU-R BS.1770-4:
 - 4x-oversampled true-peak detection (catches inter-sample peaks)
 - Lookahead true-peak limiter (holds the OVERSAMPLED peak at the ceiling)
 - Loudness normalization to target, with a before/after measurement report
+- **A/B reference comparison**: upload a reference track, measure its LUFS, and see the
+  loudness delta vs your master with the gain needed to match (loudness-matched A/B)
 
 ## Arrangement (Scope 4)
 
