@@ -454,13 +454,20 @@ export class WebRTCAdapter extends DeviceAdapter {
   // ── Private: signaling encode/decode ───────────────────────────────────
 
   private encodeSignal(desc: RTCSessionDescription): string {
-    // Compact JSON, base64-encoded for easy copy-paste.
+    // Compact JSON, base64-encoded for easy copy-paste. Uses TextEncoder (UTF-8)
+    // instead of the deprecated escape/unescape pair.
     const payload = JSON.stringify({ type: desc.type, sdp: desc.sdp })
-    return btoa(unescape(encodeURIComponent(payload)))
+    const bytes = new TextEncoder().encode(payload)
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+    return btoa(binary)
   }
 
   private decodeSignal(str: string): RTCSessionDescriptionInit {
-    const json = decodeURIComponent(escape(atob(str.trim())))
+    const binary = atob(str.trim())
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    const json = new TextDecoder().decode(bytes)
     const parsed = JSON.parse(json) as { type: RTCSdpType; sdp: string }
     return { type: parsed.type, sdp: parsed.sdp }
   }
