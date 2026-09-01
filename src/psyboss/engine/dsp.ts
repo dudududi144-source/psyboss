@@ -99,10 +99,10 @@ export function renderKick(sampleRate: number, variant: number, seed: number): S
   const endFreq = [50, 48, 52, 45][variant] ?? 50
   const pitchDecaySec = ([60, 50, 70, 80][variant] ?? 60) / 1000
   const ampDecay = [0.09, 0.07, 0.11, 0.14][variant] ?? 0.09
-  const clickGain = [0.5, 0.6, 0.4, 0.3][variant] ?? 0.5
-  const subGain = 0.22 // sub-bass layer amplitude
+  const clickGain = [0.55, 0.65, 0.45, 0.4][variant] ?? 0.55
+  const subGain = 0.26 // sub-bass layer amplitude
   // Scale so fundamental + sub + click never exceeds ~0.95 (ROAST-1 §2: was clipping >1.0)
-  const fundamentalGain = 0.7
+  const fundamentalGain = 0.72
 
   const dc = new DcBlocker(sampleRate)
   const rng = noiseStream(mulberry32(seed))
@@ -127,8 +127,10 @@ export function renderKick(sampleRate: number, variant: number, seed: number): S
       click = rng() * clickGain * ramp * (1 - t / 0.002)
     }
     let sample = (fundamental + sub) * amp + click * amp
+    // MODERN: tanh drive adds punch + warm harmonics to the kick body.
+    sample = Math.tanh(sample * 1.3) * 0.92
     sample = dc.process(sample)
-    sample = clamp(saturate(sample))
+    sample = clamp(sample)
     left[i] = sample
     right[i] = sample
   }
