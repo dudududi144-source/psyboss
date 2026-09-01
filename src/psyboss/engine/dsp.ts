@@ -248,9 +248,291 @@ export function renderBass(sampleRate: number, variant: number, seed: number): S
   return { left, right, sampleRate }
 }
 
-const RENDERERS = [renderKick, renderSnare, renderHat, renderBass]
 
-export const TRACK_NAMES = ['KICK', 'SNARE', 'HAT', 'BASS'] as const
+// ─────────────────────────────────────────────────────────────────────────────
+// PSYTRANCE EXPANSION — the sounds that make PSYBOSS actually speak trance.
+// A device named PSYBOSS must deliver the genre's signature voices: the rolling
+// resonant bass, the squelchy 303-style lead, plucky arps, atmospheric pads,
+// psy claps, and tension FX. All seeded + deterministic like the core bank.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resonant lowpass (2-pole SVF-style) for the squelchy psy character.
+ * State-variable filter: returns lowpass output. `res` in [0, 2] (self-oscillate ~2).
+ */
+class ResonantLP {
+  private lp = 0
+  private bp = 0
+  private fc: number
+  private res: number
+  constructor(sampleRate: number, cutoffHz: number, res: number) {
+    this.fc = 2 * Math.sin((Math.PI * Math.min(cutoffHz, sampleRate * 0.45)) / sampleRate)
+    this.res = res
+  }
+  setCutoff(hz: number, sampleRate: number): void {
+    this.fc = 2 * Math.sin((Math.PI * Math.min(hz, sampleRate * 0.45)) / sampleRate)
+  }
+  process(x: number): number {
+    this.lp = flushDenormal(this.lp + this.fc * this.bp)
+    const hp = x - this.lp - this.res * this.bp
+    this.bp = flushDenormal(this.bp + this.fc * hp)
+    return this.lp
+  }
+}
+
+/**
+ * PSY LEAD — the squelchy, resonant lead that defines psytrance.
+ * Saw + square blend through a resonant lowpass whose cutoff opens then closes
+ * (the classic "wow"). Optional FM ping for extra bite. 4 variants = different
+ * resonance / modulation depth / FM amount.
+ */
+export function renderLead(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.6
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 220 // A3
+  const intervals = [1, 1.5, 2, 3][variant] ?? 1 // root, fifth, octave, octave+fifth
+  const freq = root * intervals
+
+  const res = [1.3, 1.6, 1.1, 1.8][variant] ?? 1.4
+  const fStart = [1800, 2400, 1400, 3000][variant] ?? 2000
+  const fEnd = [300, 400, 250, 500][variant] ?? 350
+  const fDecaySec = [0.28, 0.34, 0.22, 0.4][variant] ?? 0.3
+  const fmAmount = [0, 80, 30, 140][variant] ?? 60
+  const detune = [0, 4, 2, 7][variant] ?? 3
+
+  const inc = freq / sampleRate
+  const inc2 = (freq * Math.pow(2, detune / 1200)) / sampleRate
+  const dc = new DcBlocker(sampleRate)
+  const filt = new ResonantLP(sampleRate, fStart, res)
+  let ph1 = 0
+  let ph2 = 0
+  let phFm = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const fEnv = Math.exp(-t / fDecaySec)
+    const cutoff = fEnd + (fStart - fEnd) * fEnv
+    filt.setCutoff(cutoff, sampleRate)
+    phFm += ((freq * 2.01) / sampleRate) * TAU
+    const fm = Math.sin(phFm) * (fmAmount / sampleRate) * fEnv
+    ph1 += inc * TAU + fm
+    ph2 += inc2 * TAU + fm
+    let sawPh = (ph1 / TAU) % 1
+    if (sawPh < 0) sawPh += 1
+    const saw = sawPh * 2 - 1 + polyblepSaw(sawPh, inc)
+    const sq = Math.sin(ph2) > 0 ? 0.5 : -0.5
+    const raw = saw * 0.65 + sq * 0.35
+    const filtered = filt.process(raw)
+    const amp = envAR(t, 0.004, 0.3, 0.5)
+    const sample = dc.process(saturate(filtered * amp * 2.2))
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.96)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * PSY ARP — short, plucky, resonant arp note designed to be triggered in fast
+ * sequences. Bright attack, fast decay, touch of resonance.
+ */
+export function renderArp(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.22
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 440 // A4
+  const intervals = [1, 1.25, 1.5, 2][variant] ?? 1
+  const freq = root * intervals
+  const res = [1.2, 1.5, 1.0, 1.7][variant] ?? 1.3
+  const fStart = [3200, 2800, 3600, 2400][variant] ?? 3000
+  const fEnd = [600, 500, 700, 450][variant] ?? 550
+  const fDecaySec = 0.1
+
+  const inc = freq / sampleRate
+  const dc = new DcBlocker(sampleRate)
+  const filt = new ResonantLP(sampleRate, fStart, res)
+  let ph = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const fEnv = Math.exp(-t / fDecaySec)
+    filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
+    ph += inc
+    ph -= Math.floor(ph)
+    const saw = ph * 2 - 1 + polyblepSaw(ph, inc)
+    const filtered = filt.process(saw)
+    const amp = envAR(t, 0.002, 0.09, 0.45)
+    const sample = dc.process(saturate(filtered * amp * 2.4))
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.92)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * PSY PAD — wide, atmospheric pad for breakdowns. Detuned saws through a gentle
+ * lowpass with slow attack. Stereo-widened via per-channel detune.
+ */
+export function renderPad(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 1.2
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 110 // A2
+  const intervals = [1, 1.5, 1.335, 2][variant] ?? 1
+  const freq = root * intervals
+  const detCents = [8, 12, 6, 15][variant] ?? 10
+  const lpHz = [900, 1200, 750, 1500][variant] ?? 1000
+
+  const incL = (freq * Math.pow(2, -detCents / 1200)) / sampleRate
+  const incR = (freq * Math.pow(2, detCents / 1200)) / sampleRate
+  const incC = freq / sampleRate
+  const dcL = new DcBlocker(sampleRate)
+  const dcR = new DcBlocker(sampleRate)
+  const filtL = new ResonantLP(sampleRate, lpHz, 0.5)
+  const filtR = new ResonantLP(sampleRate, lpHz * 1.05, 0.5)
+  let phL = 0, phR = 0, phC = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    phL += incL; phL -= Math.floor(phL)
+    phR += incR; phR -= Math.floor(phR)
+    phC += incC; phC -= Math.floor(phC)
+    const sL = phL * 2 - 1 + polyblepSaw(phL, incL)
+    const sR = phR * 2 - 1 + polyblepSaw(phR, incR)
+    const sC = phC * 2 - 1 + polyblepSaw(phC, incC)
+    const amp = envAR(t, 0.18, 0.7, 0.3)
+    const l = dcL.process(filtL.process((sL * 0.6 + sC * 0.4) * amp))
+    const r = dcR.process(filtR.process((sR * 0.6 + sC * 0.4) * amp))
+    left[i] = clamp(l)
+    right[i] = clamp(r)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * PSY CLAP — the classic psy/techno clap: a few filtered-noise bursts with a
+ * resonant bandpass, tight and punchy.
+ */
+export function renderClap(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.28
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const bpHz = [1400, 1800, 1100, 2200][variant] ?? 1600
+  const bursts = [3, 4, 2, 5][variant] ?? 3
+  const burstGap = [0.012, 0.009, 0.015, 0.007][variant] ?? 0.011
+  const rng = noiseStream(mulberry32(seed))
+  const dc = new DcBlocker(sampleRate)
+  const bw = Math.max(bpHz, 100) / sampleRate
+  let lp1 = 0, lp2 = 0, hpPrev = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    let env = 0
+    for (let b = 0; b < bursts; b++) {
+      const bt = t - b * burstGap
+      if (bt >= 0 && bt < 0.01) env += (1 - bt / 0.01) * 0.8
+    }
+    const tailStart = bursts * burstGap
+    if (t >= tailStart) env += Math.exp(-(t - tailStart) / 0.06) * 0.6
+    const noise = rng()
+    lp1 = onePoleLP(lp1, noise, Math.min(bw * 6, 0.9))
+    lp2 = onePoleLP(lp2, lp1, Math.min(bw * 6, 0.9))
+    const hp = lp2 - hpPrev
+    hpPrev = lp2
+    const sample = dc.process(hp * env * 1.6)
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.9)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * PSY FX RISER — rising band-swept noise that builds tension before a drop.
+ * Bandpass center + amplitude ramp upward over the duration.
+ */
+export function renderFx(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 1.0
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const fStart = [300, 200, 400, 250][variant] ?? 300
+  const fEnd = [6000, 8000, 5000, 9000][variant] ?? 7000
+  const rng = noiseStream(mulberry32(seed))
+  const dc = new DcBlocker(sampleRate)
+  let lp1 = 0, lp2 = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const p = t / dur
+    const cutoff = fStart + (fEnd - fStart) * (p * p)
+    const bw = Math.max(cutoff, 100) / sampleRate
+    const noise = rng()
+    lp1 = onePoleLP(lp1, noise, Math.min(bw * 4, 0.9))
+    lp2 = onePoleLP(lp2, lp1, Math.min(bw * 4, 0.9))
+    const shimmer = Math.sin(TAU * (20 + p * 400) * t) * 0.15 * p
+    const amp = p * p * 0.5
+    const sample = dc.process((lp2 + shimmer) * amp)
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.85)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * ROLLING PSY BASS — the signature KBBB psy bass: a punchy, resonant offbeat
+ * bass note. Tighter and more resonant than the generic bass, tuned to sit
+ * between kicks. (The "roll" pattern itself is laid down by the sequencer.)
+ */
+export function renderRollBass(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.26
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 55 // A1
+  const intervals = [1, 1, 1.5, 2][variant] ?? 1
+  const freq = root * intervals
+  const res = [1.1, 1.4, 0.9, 1.6][variant] ?? 1.2
+  const fStart = [700, 900, 600, 1100][variant] ?? 800
+  const fEnd = [180, 220, 160, 260][variant] ?? 200
+  const fDecaySec = 0.09
+
+  const inc = freq / sampleRate
+  const dc = new DcBlocker(sampleRate)
+  const filt = new ResonantLP(sampleRate, fStart, res)
+  let ph = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const fEnv = Math.exp(-t / fDecaySec)
+    filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
+    ph += inc
+    ph -= Math.floor(ph)
+    const saw = ph * 2 - 1 + polyblepSaw(ph, inc)
+    const filtered = filt.process(saw)
+    const amp = envAR(t, 0.002, 0.12, 0.85)
+    const sample = dc.process(saturate(filtered * amp * 1.9))
+    left[i] = clamp(sample)
+    right[i] = clamp(sample)
+  }
+  return { left, right, sampleRate }
+}
+
+const RENDERERS = [
+  renderKick,
+  renderRollBass,
+  renderLead,
+  renderArp,
+  renderHat,
+  renderClap,
+  renderPad,
+  renderFx,
+]
+
+export const TRACK_NAMES = ['KICK', 'BASS', 'LEAD', 'ARP', 'HAT', 'CLAP', 'PAD', 'FX'] as const
 export const SCENE_COUNT = 4
 
 /**
