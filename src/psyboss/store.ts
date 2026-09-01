@@ -32,6 +32,17 @@ import {
   MASTERING_PRESETS,
   type MasteringReport,
 } from './engine/mastering'
+import {
+  createArrangement,
+  addClip,
+  removeClip,
+  moveClip,
+  arrangementLengthBars,
+  findOverlaps,
+  type Arrangement,
+  type ArrangementClip,
+} from './engine/arrangement'
+import { renderArrangement } from './engine/offline-render'
 import { downloadWav } from './engine/wav-encoder'
 
 // ── Transport + UI state ──────────────────────────────────────────────────────
@@ -656,5 +667,104 @@ export const useWebRTC = create<WebRTCStore>((set, get) => ({
       latencyMs: 0,
       error: null,
     })
+  },
+}))
+
+
+// ── Arrangement store (Scope 4: linear timeline UI) ──────────────────────
+export interface ArrangementStore {
+  arrangement: Arrangement
+  rendering: boolean
+  renderError: string | null
+  lastExportInfo: string | null
+  masteringReport: MasteringReport | null
+
+  addClip: (lengthBars: number, label?: string) => void
+  removeClip: (clipId: string) => void
+  moveClip: (clipId: string, newStartBar: number) => void
+  setClipLabel: (clipId: string, label: string) => void
+  clear: () => void
+  exportArrangement: (preset: 'off' | 'club' | 'streaming') => Promise<void>
+}
+
+export const useArrangement = create<ArrangementStore>((set, get) => ({
+  arrangement: createArrangement('Untitled Track', 144, SEED),
+  rendering: false,
+  renderError: null,
+  lastExportInfo: null,
+  masteringReport: null,
+
+  addClip: (lengthBars, label) => {
+    // Each clip references the CURRENT step-sequencer pattern. The arrangement
+    // sequences that pattern over time (intro/build/drop/outro structure).
+    const currentPattern = usePattern.getState().pattern
+    const arr = get().arrangement
+    const startBar = arrangementLengthBars(arr)
+    const clip: ArrangementClip = {
+      id: `clip-${startBar}-${arr.clips.length}-${Date.now().toString(36)}`,
+      pattern: currentPattern,
+      startBar,
+      lengthBars,
+      label: label ?? `Section ${arr.clips.length + 1}`,
+    }
+    set({ arrangement: addClip(arr, clip) })
+  },
+
+  removeClip: (clipId) => {
+    set({ arrangement: removeClip(get().arrangement, clipId) })
+  },
+
+  moveClip: (clipId, newStartBar) => {
+    set({ arrangement: moveClip(get().arrangement, clipId, newStartBar) })
+  },
+
+  setClipLabel: (clipId, label) => {
+    set({
+      arrangement: {
+        ...get().arrangement,
+        clips: get().arrangement.clips.map((c) =>
+          c.id === clipId ? { ...c, label } : c
+        ),
+      },
+    })
+  },
+
+  clear: () => {
+    const arr = get().arrangement
+    set({
+      arrangement: createArrangement(arr.name, arr.bpm, arr.seed),
+      lastExportInfo: null,
+      masteringReport: null,
+    })
+  },
+
+  exportArrangement: async (preset) => {
+    const { arrangement } = get()
+    if (arrangement.clips.length === 0) {
+      set({ renderError: 'Arrangement is empty. Add clips first.' })
+      return
+    }
+    const overlaps = findOverlaps(arrangement)
+    if (overlaps.length > 0) {
+      set({ renderError: `Clips overlap (${overlaps.length} pair(s)). Move them apart first.` })
+      return
+    }
+    set({ rendering: true, renderError: null })
+    try {
+      const mastering = preset === 'off' ? undefined : MASTERING_PRESETS[preset]
+      const result = await renderArrangement({ arrangement, mastering })
+      const suffix = preset === 'off' ? '' : `-${preset}`
+      downloadWav(result.master, `${arrangement.name.replace(/\s+/g, '-').toLowerCase() || 'psyboss-track'}${suffix}.wav`)
+      set({
+        rendering: false,
+        lastExportInfo: `${result.clipCount} clips, ${result.durationSec.toFixed(1)}s, ${result.master.length} bytes`,
+        masteringReport: result.masteringReport ?? null,
+      })
+    } catch (err) {
+      set({
+        rendering: false,
+        renderError: err instanceof Error ? err.message : String(err),
+      })
+    }
   },
 }))
