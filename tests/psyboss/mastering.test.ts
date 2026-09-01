@@ -6,7 +6,7 @@
  * doesn't read -3.0 on a full-scale 1kHz sine is broken — that's the whole point.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'bun:test'
 import {
   measureLufs,
   measureTruePeak,
