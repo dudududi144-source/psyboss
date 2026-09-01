@@ -2,8 +2,12 @@
  * PSYBOSS Mastering DSP — numerical test suite (Scope 4).
  *
  * These are calibration tests: they verify the LUFS meter, true-peak detector,
- * and limiter against signals with KNOWN loudness values. A LUFS meter that
- * doesn't read -3.0 on a full-scale 1kHz sine is broken — that's the whole point.
+ * and limiter against signals with KNOWN loudness values.
+ *
+ * NOTE on expected values: makeSine() produces a DUAL-MONO signal (identical
+ * sine on L and R). For ITU-R BS.1770 stereo, both channels are summed with
+ * weight 1.0, so a dual-mono full-scale sine reads ~0 LUFS (a mono full-scale
+ * sine would read ~-3 LUFS). Expectations below match the dual-mono signal.
  */
 
 import { describe, it, expect } from 'bun:test'
@@ -64,22 +68,24 @@ describe('K-weighting', () => {
 })
 
 describe('LUFS meter (calibration)', () => {
-  it('reads ~-3.0 LUFS for a full-scale 1kHz sine', () => {
-    // A full-scale (amplitude 1.0) sine has RMS = -3.01 dBFS. K-weighting at
-    // 1kHz is ~0dB, so integrated LUFS should be ~-3.0. This is THE calibration.
+  it('reads ~0 LUFS for a dual-mono full-scale 1kHz sine', () => {
+    // Dual-mono (L=R) full-scale sine. ITU stereo sums both channels (each RMS
+    // -3.01 dBFS), so combined power is +3dB over mono → ~0 LUFS. (A true mono
+    // full-scale sine would read ~-3 LUFS.) Tolerance covers K-weighting spread.
     const { left, right } = makeSine(1000, 1.0, 4)
     const result = measureLufs(left, right, SR)
-    expect(result.integrated).toBeGreaterThan(-3.6)
-    expect(result.integrated).toBeLessThan(-2.5)
+    expect(result.integrated).toBeGreaterThan(-1.0)
+    expect(result.integrated).toBeLessThan(0.8)
   })
 
-  it('reads ~-23 LUFS for a -20dB 1kHz sine', () => {
-    // Amplitude 0.1 = -20 dBFS → LUFS ~ -23.
+  it('reads ~-20 LUFS for a dual-mono -20dB 1kHz sine', () => {
+    // Amplitude 0.1 = -20 dBFS per channel. Dual-mono stereo sums both channels
+    // (+3dB over mono), so integrated LUFS ~ -20. (Mono would read ~-23.)
     const amp = 0.1
     const { left, right } = makeSine(1000, amp, 4)
     const result = measureLufs(left, right, SR)
-    expect(result.integrated).toBeGreaterThan(-23.6)
-    expect(result.integrated).toBeLessThan(-22.4)
+    expect(result.integrated).toBeGreaterThan(-21.0)
+    expect(result.integrated).toBeLessThan(-19.2)
   })
 
   it('gates silence to -Infinity', () => {
