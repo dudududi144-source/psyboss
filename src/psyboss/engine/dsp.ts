@@ -295,8 +295,8 @@ class ResonantLP {
  */
 class LadderFilter {
   private s = [0, 0, 0, 0]
-  private g: number
-  private k: number
+  private g = 0
+  private k = 0
   constructor(sampleRate: number, cutoffHz: number, resonance: number) {
     this.setCutoff(cutoffHz, sampleRate)
     this.k = Math.min(Math.max(resonance, 0), 3.9)
