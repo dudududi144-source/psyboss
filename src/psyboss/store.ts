@@ -49,6 +49,7 @@ import {
   type ReferenceAnalysis,
   type ABComparison,
 } from './engine/reference'
+import type { ConnectionStatus, WebRTCAdapter } from './adapters/webrtc-adapter'
 import { downloadWav } from './engine/wav-encoder'
 
 // ── Transport + UI state ──────────────────────────────────────────────────────
@@ -564,8 +565,6 @@ export const useDevices = create<DevicesStore>((set, get) => ({
 
 
 // ── WebRTC P2P store (Scope 3 final: multi-performer sync) ───────────────
-import type { ConnectionStatus } from './adapters/webrtc-adapter'
-import type { WebRTCAdapter } from './adapters/webrtc-adapter'
 
 export interface WebRTCStore {
   role: 'host' | 'guest' | null
