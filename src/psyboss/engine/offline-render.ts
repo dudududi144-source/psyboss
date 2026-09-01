@@ -187,12 +187,19 @@ async function renderTrackRaw(args: {
 
   limiter.connect(ctx.destination)
 
-  // Per-track gains.
+  // Per-track gains + sidechain bus (mirror of the live audio-engine).
+  const sidechainGain = ctx.createGain()
+  sidechainGain.gain.value = 1.0
+  sidechainGain.connect(masterGain)
   const trackGains: GainNode[] = []
   for (let t = 0; t < pattern.tracks.length; t++) {
     const g = ctx.createGain()
     g.gain.value = 0.95
-    g.connect(masterGain)
+    if (t === 0) {
+      g.connect(masterGain) // kick bypasses the sidechain
+    } else {
+      g.connect(sidechainGain)
+    }
     trackGains.push(g)
   }
 
@@ -235,6 +242,13 @@ async function renderTrackRaw(args: {
         src.connect(trackGains[s.track])
       }
       src.start(s.audioTime)
+      // Sidechain pump (mirror of live engine): duck non-kick bus under each kick.
+      if (s.track === 0) {
+        const sg = sidechainGain.gain
+        sg.setValueAtTime(1.0, s.audioTime)
+        sg.linearRampToValueAtTime(0.35, s.audioTime + 0.008)
+        sg.setTargetAtTime(1.0, s.audioTime + 0.04, 0.08)
+      }
     }
   }
 
