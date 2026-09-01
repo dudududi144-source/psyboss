@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, memo } from 'react'
 import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, useArrangement, useReference, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
 import type { TrigCondition } from '@/psyboss/engine/lfsr'
+import { PSY_PRESETS } from '@/psyboss/engine/presets'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
@@ -1143,6 +1144,50 @@ function ArrangementPanel() {
   )
 }
 
+
+// ── PSYTRANCE PRESET BAR (instant genre grooves) ───────────────────────────
+function PsyPresetBar() {
+  const loadPreset = usePattern((s) => s.loadPreset)
+  const [loaded, setLoaded] = useState<string | null>(null)
+
+  return (
+    <section className="mb-4">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div>
+          <h2 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            Psytrance Presets
+          </h2>
+          <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+            Instant genre grooves — load one, hit play. The rolling KBBB bass is the heartbeat of psy.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {PSY_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => {
+              loadPreset(p.id)
+              setLoaded(p.id)
+              setTimeout(() => setLoaded(null), 1500)
+            }}
+            className={`p-3 rounded-lg border text-left transition-all hover:scale-[1.02] ${
+              loaded === p.id
+                ? 'border-emerald-500/60 bg-emerald-500/15'
+                : 'border-border/40 bg-card/40 hover:border-emerald-500/40'
+            }`}
+          >
+            <div className={`font-mono text-xs font-bold ${loaded === p.id ? 'text-emerald-400' : 'text-foreground/85'}`}>
+              {loaded === p.id ? '✓ ' : ''}{p.name}
+            </div>
+            <div className="text-[9px] font-mono text-muted-foreground mt-1 leading-tight">{p.desc}</div>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 // ── DEVICES PANEL (Scope 3: PSYBUS device adapters) ─────────────────────
 function DevicesPanel() {
   const devices = useDevices((s) => s.devices)
@@ -1524,6 +1569,8 @@ export default function Home() {
           </Card>
         ) : (
           <>
+            <PsyPresetBar />
+
             <section>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div>
