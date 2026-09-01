@@ -26,6 +26,22 @@ PSYBOSS can now connect to external devices via PSYBUS:
 | `WebRTCAdapter` | Multi-performer P2P sync (NTP-style, jitter-buffered) | Ready |
 
 See `src/psyboss/adapters/` for the full implementation.
+## Mastering (Scope 4)
+
+Offline renders can be mastered to broadcast-standard loudness targets before export:
+
+| Preset | Target | True-Peak Ceiling | Use case |
+|--------|--------|-------------------|----------|
+| **Club** | -8 LUFS | -0.1 dBTP | Beatport / DJ sets |
+| **Streaming** | -14 LUFS | -1.0 dBTP | Spotify / YouTube |
+
+The mastering chain implements ITU-R BS.1770-4:
+- K-weighting filters (48kHz + 44.1kHz coefficient sets)
+- Integrated LUFS with absolute (-70) + relative (-10 LU) gating
+- 4x-oversampled true-peak detection (catches inter-sample peaks)
+- Lookahead true-peak limiter (holds the OVERSAMPLED peak at the ceiling)
+- Loudness normalization to target, with a before/after measurement report
+
 
 ## Documents
 
