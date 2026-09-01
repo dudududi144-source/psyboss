@@ -64,6 +64,7 @@ export class AudioEngine {
   private limiter: DynamicsCompressorNode | null = null
   private delaySend: GainNode | null = null
   private reverbSend: GainNode | null = null
+  private sidechainGain: GainNode | null = null
 
   private trackGains: GainNode[] = []
   private soundBank: Map<string, AudioBuffer> = new Map()
@@ -171,10 +172,22 @@ export class AudioEngine {
       outputChannelCount: [2],
     })
 
+    // ── Sidechain bus (the classic psytrance pump) ──
+    // Everything except the kick routes through sidechainGain. When a kick fires,
+    // triggerSidechainDuck() momentarily dips this bus so the low end breathes
+    // around each kick — THE defining dynamic of psytrance.
+    this.sidechainGain = ctx.createGain()
+    this.sidechainGain.gain.value = 1.0
+    this.sidechainGain.connect(this.masterGain)
+
     for (let i = 0; i < TRACK_NAMES.length; i++) {
       const g = ctx.createGain()
       g.gain.value = 0.95
-      g.connect(this.masterGain)
+      if (i === 0) {
+        g.connect(this.masterGain) // kick bypasses the sidechain
+      } else {
+        g.connect(this.sidechainGain)
+      }
       this.trackGains.push(g)
     }
 
@@ -304,6 +317,11 @@ export class AudioEngine {
       buf = this.soundBank.get(key)
     }
     if (!buf) return
+
+    // Sidechain: when a KICK fires, duck the rest of the mix (the psy pump).
+    if (track === 0) {
+      this.triggerSidechainDuck(when)
+    }
 
     // Voice cap: steal the oldest voice if we'd exceed the limit.
     // ROAST-3 #6 fix: remove synchronously (was: async onended → size hit 65).
@@ -446,7 +464,21 @@ export class AudioEngine {
     convolver.connect(this.limiter!)
   }
 
-  /** Generate a deterministic stereo reverb impulse response (decaying noise). */
+  /**
+   * Sidechain pump: dip the non-kick bus when a kick fires, then recover.
+   * Fast attack (~8ms duck), musical release back to unity.
+   */
+  private triggerSidechainDuck(atTime: number): void {
+    if (!this.ctx || !this.sidechainGain) return
+    const g = this.sidechainGain.gain
+    g.cancelScheduledValues(atTime)
+    g.setValueAtTime(1.0, atTime)
+    g.linearRampToValueAtTime(0.35, atTime + 0.008)
+    g.setTargetAtTime(1.0, atTime + 0.04, 0.08)
+  }
+
+  /**
+   * Generate a deterministic stereo reverb impulse response (decaying noise). */
   private createReverbIR(ctx: AudioContext, duration: number): AudioBuffer {
     const rate = ctx.sampleRate
     const length = Math.floor(rate * duration)
