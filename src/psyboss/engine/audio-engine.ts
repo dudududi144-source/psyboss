@@ -153,7 +153,7 @@ export class AudioEngine {
     // ── Master bus graph ──
     // trackGains[i] → masterGain → limiter → clockNode (passthrough+meter) → destination
     this.masterGain = ctx.createGain()
-    this.masterGain.gain.value = 0.8
+    this.masterGain.gain.value = 0.92
 
     this.limiter = ctx.createDynamicsCompressor()
     this.limiter.threshold.value = -1.0
@@ -170,7 +170,7 @@ export class AudioEngine {
 
     for (let i = 0; i < TRACK_NAMES.length; i++) {
       const g = ctx.createGain()
-      g.gain.value = 0.75
+      g.gain.value = 0.95
       g.connect(this.masterGain)
       this.trackGains.push(g)
     }
