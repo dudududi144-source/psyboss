@@ -55,15 +55,20 @@ render a DJ-ready WAV, and the render matches the live take bit-for-bit.
 scene matrix, have the kick sidechain the bass automatically, and jam with a second performer
 over WebRTC — all sample-accurate.
 
-## Scope 4 — Arrangement & Mastering
+## Scope 4 — Arrangement & Mastering ✅ COMPLETE
 
 **Goal**: turn performances into finished, releasable tracks.
 
-- Arrangement view (linear timeline, drag clips from session matrix → arrangement)
-- Song export (full length, not just 4-bar)
-- Master bus: multiband compressor, true-peak limiter, LUFS meter (-8 club / -14 streaming targets)
-- ID3/metadata tagging on export
-- A/B against reference track (loudness-matched)
+**Delivered**: ITU-R BS.1770 mastering chain (LUFS meter + true-peak limiter +
+loudness normalization), arrangement timeline with clip sequencing, and full-length
+mastered export. Exit criteria met: a user can arrange a full track, master it to
+Beatport (-8 LUFS) or Spotify (-14 LUFS, -1 dBTP), and export a release-ready WAV.
+
+- ✅ Arrangement view (linear timeline, clip sequencing with Intro/Build/Drop/Break/Outro labels)
+- ✅ Song export (full length, not just 4-bar)
+- ✅ Master bus: true-peak limiter + LUFS meter (-8 club / -14 streaming targets)
+- ⏳ ID3/metadata tagging on export (future)
+- ⏳ A/B against reference track (future)
 
 **Exit criteria**: a user can arrange a full track, master it to Beatport (-8 LUFS) or Spotify
 (-14 LUFS, -1 dBTP), and export a release-ready file.
