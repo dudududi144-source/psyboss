@@ -183,7 +183,10 @@ describe('masterBuffer (end-to-end)', () => {
   })
 
   it('reports pre/post measurements', () => {
-    const { left, right } = makeSine(1000, 0.2, 3)
+    // Amplitude 0.1 = ~-20 LUFS dual-mono, well BELOW the -14 streaming target,
+    // so mastering BOOSTS it (post > pre, positive gain). Using a signal already
+    // at the target would make post ~= pre and invalidate the boost assertion.
+    const { left, right } = makeSine(1000, 0.1, 3)
     const report = masterBuffer(left, right, SR, MASTERING_PRESETS.streaming)
     expect(report.preIntegratedLufs).toBeLessThan(report.postIntegratedLufs)
     expect(report.preTruePeakDb).toBeLessThan(report.postTruePeakDb + 0.5)
