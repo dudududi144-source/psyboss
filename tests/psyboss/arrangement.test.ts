@@ -6,7 +6,7 @@
  * (no audio), so they run fast and deterministic.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'bun:test'
 import {
   createArrangement,
   addClip,
