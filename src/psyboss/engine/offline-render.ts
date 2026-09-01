@@ -17,7 +17,12 @@
 
 import { renderSoundBank, dspProvenance } from './dsp'
 import { collectScheduledSteps, type Pattern, STEPS_PER_BAR } from './sequencer'
-import { encodeWav, type WavInput } from './wav-encoder'
+import { encodeWav } from './wav-encoder'
+import {
+  masterBuffer,
+  type MasteringTargets,
+  type MasteringReport,
+} from './mastering'
 
 export interface RenderOptions {
   pattern: Pattern
@@ -28,12 +33,17 @@ export interface RenderOptions {
   // ROAST-5 #D: external samples (from SampleLibrary) for steps with sampleRef.
   // Keyed by sample id → AudioBuffer.
   samples?: Map<string, AudioBuffer>
+  // Scope 4: mastering targets. If set, the master output is loudness-normalized
+  // and true-peak limited before encoding. Stems are always left unmastered.
+  mastering?: MasteringTargets
 }
 
 export interface RenderResult {
   master: Uint8Array // WAV bytes
   stems: Map<number, Uint8Array> // per-track WAV bytes
   durationSec: number
+  // Scope 4: mastering measurements (present only when mastering was requested).
+  masteringReport?: MasteringReport
 }
 
 /**
@@ -54,25 +64,47 @@ export async function renderOffline(opts: RenderOptions): Promise<RenderResult> 
   const duration = bars * secPerBar
 
   // Render master: all tracks mixed.
-  const masterWav = await renderTrack({
+  const masterRender = await renderTrackRaw({
     pattern, seed, bpm, bars, sampleRate, soloTrack: -1, duration,
     samples: opts.samples,
+  })
+
+  // Scope 4: master the master output to the requested loudness/peak targets.
+  let masteringReport: MasteringReport | undefined
+  let masterWav: Uint8Array
+  if (opts.mastering) {
+    masteringReport = masterBuffer(
+      masterRender.left,
+      masterRender.right,
+      sampleRate,
+      opts.mastering,
+    )
+  }
+  masterWav = encodeWav({
+    left: masterRender.left,
+    right: masterRender.right,
+    sampleRate,
   })
 
   // Render stems: one per track (solo each).
   const stems = new Map<number, Uint8Array>()
   for (let t = 0; t < pattern.tracks.length; t++) {
-    const stemWav = await renderTrack({
+    const stemRaw = await renderTrackRaw({
       pattern, seed, bpm, bars, sampleRate, soloTrack: t, duration,
       samples: opts.samples,
     })
-    stems.set(t, stemWav)
+    stems.set(t, encodeWav({ left: stemRaw.left, right: stemRaw.right, sampleRate }))
   }
 
-  return { master: masterWav, stems, durationSec: duration }
+  return { master: masterWav, stems, durationSec: duration, masteringReport }
 }
 
-async function renderTrack(args: {
+interface RawRender {
+  left: Float32Array
+  right: Float32Array
+}
+
+async function renderTrackRaw(args: {
   pattern: Pattern
   seed: number
   bpm: number
@@ -81,7 +113,7 @@ async function renderTrack(args: {
   soloTrack: number // -1 = all tracks; otherwise only this track
   duration: number
   samples?: Map<string, AudioBuffer>
-}): Promise<Uint8Array> {
+}): Promise<RawRender> {
   const { pattern, seed, bpm, bars, sampleRate, soloTrack, duration, samples } = args
   const length = Math.ceil(duration * sampleRate)
   const ctx = new OfflineAudioContext(2, length, sampleRate)
@@ -168,8 +200,7 @@ async function renderTrack(args: {
   const rightCopy = new Float32Array(right.length)
   leftCopy.set(left)
   rightCopy.set(right)
-  const input: WavInput = { left: leftCopy, right: rightCopy, sampleRate }
-  return encodeWav(input)
+  return { left: leftCopy, right: rightCopy }
 }
 
 /**
