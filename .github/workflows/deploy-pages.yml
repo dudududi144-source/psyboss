@@ -46,9 +46,10 @@ jobs:
           echo "API routes removed. Static build will have no server endpoints."
 
       - name: Build static site
-        run: NEXT_PUBLIC_STATIC=true bun run next build
+        run: NEXT_PUBLIC_STATIC=true NEXT_PUBLIC_BASE_PATH=/psyboss bun run next build
         env:
           NEXT_PUBLIC_STATIC: "true"
+          NEXT_PUBLIC_BASE_PATH: "/psyboss"
 
       - name: Prepare output for GitHub Pages
         run: |
