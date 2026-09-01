@@ -28,6 +28,10 @@ import {
 } from './engine/sequencer'
 import type { TrigCondition } from './engine/lfsr'
 import { renderOffline } from './engine/offline-render'
+import {
+  MASTERING_PRESETS,
+  type MasteringReport,
+} from './engine/mastering'
 import { downloadWav } from './engine/wav-encoder'
 
 // ── Transport + UI state ──────────────────────────────────────────────────────
@@ -51,6 +55,9 @@ export interface PsyBossState {
   setBpm: (bpm: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
+  masteringPreset: 'off' | 'club' | 'streaming'
+  setMasteringPreset: (p: 'off' | 'club' | 'streaming') => void
+  masteringReport: MasteringReport | null
   renderMaster: (bars: number) => Promise<void>
   renderStems: (bars: number) => Promise<void>
   loadSample: (file: File, metadata: SampleMetadata) => Promise<void>
@@ -111,6 +118,10 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   rendering: false,
   renderError: null,
   lastRenderInfo: null,
+  masteringPreset: 'off',
+  masteringReport: null,
+
+  setMasteringPreset: (p) => set({ masteringPreset: p }),
   samples: [],
   sampleError: null,
   projects: [],
@@ -179,11 +190,19 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
           samplesMap.set(s.id, s.buffer)
         }
       }
+      const preset = get().masteringPreset
+      const mastering = preset === 'off' ? undefined : MASTERING_PRESETS[preset]
       const result = await renderOffline({
-        pattern, seed: SEED, bpm: get().bpm, bars, samples: samplesMap,
+        pattern, seed: SEED, bpm: get().bpm, bars, samples: samplesMap, mastering,
       })
-      downloadWav(result.master, `psyboss-master-${bars}bar.wav`)
-      set({ lastRenderInfo: `master: ${bars} bars, ${(result.durationSec).toFixed(1)}s, ${result.master.length} bytes`, rendering: false })
+      const suffix = preset === 'off' ? '' : `-${preset}`
+      downloadWav(result.master, `psyboss-master-${bars}bar${suffix}.wav`)
+      // Scope 4: surface the mastering report in the UI.
+      set({
+        lastRenderInfo: `master: ${bars} bars, ${(result.durationSec).toFixed(1)}s, ${result.master.length} bytes`,
+        rendering: false,
+        masteringReport: result.masteringReport ?? null,
+      })
     } catch (e) {
       set({ renderError: e instanceof Error ? e.message : String(e), rendering: false })
     }
