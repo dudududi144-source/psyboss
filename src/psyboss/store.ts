@@ -423,6 +423,12 @@ export const usePattern = create<PatternStore>((set, get) => ({
     // to hear it, so enable pattern playback and push the pattern to the engine.
     // setPatternEnabled(true) reads the freshly-set pattern from usePattern.
     usePsyBoss.getState().setPatternEnabled(true)
+    // Auto-play: clicking a preset should give immediate sound. Start transport
+    // if not already playing (the preset click is a user gesture, so the audio
+    // context is allowed to resume).
+    if (engine && !usePsyBoss.getState().playing) {
+      engine.play()
+    }
   },
 }))
 
