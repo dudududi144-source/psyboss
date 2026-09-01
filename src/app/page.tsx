@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, memo } from 'react'
-import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, STEPS_PER_BAR } from '@/psyboss/store'
+import { usePsyBoss, useMeter, usePattern, useDevices, useWebRTC, useArrangement, STEPS_PER_BAR } from '@/psyboss/store'
 import { TRACK_NAMES, SCENE_COUNT } from '@/psyboss/engine/dsp'
 import type { TrigCondition } from '@/psyboss/engine/lfsr'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database, Cable, Copy, Check, Users } from 'lucide-react'
+import { Play, Square, Zap, ShieldCheck, Activity, Radio, Keyboard, Download, Music2, FileAudio, Eraser, Upload, Trash2, Library, FolderOpen, Save, Database, Cable, Copy, Check, Users, Layers } from 'lucide-react'
 
 const TRACKS = TRACK_NAMES as readonly string[]
 const SCENES = SCENE_COUNT
@@ -909,6 +909,151 @@ function WebRTCSignalingPanel() {
   )
 }
 
+
+// ── ARRANGEMENT PANEL (Scope 4: linear timeline) ─────────────────────────
+const CLIP_LABELS = ['Intro', 'Build', 'Drop', 'Break', 'Outro'] as const
+
+function ArrangementPanel() {
+  const arrangement = useArrangement((s) => s.arrangement)
+  const rendering = useArrangement((s) => s.rendering)
+  const renderError = useArrangement((s) => s.renderError)
+  const lastExportInfo = useArrangement((s) => s.lastExportInfo)
+  const masteringReport = useArrangement((s) => s.masteringReport)
+  const addClip = useArrangement((s) => s.addClip)
+  const removeClip = useArrangement((s) => s.removeClip)
+  const setClipLabel = useArrangement((s) => s.setClipLabel)
+  const clear = useArrangement((s) => s.clear)
+  const exportArrangement = useArrangement((s) => s.exportArrangement)
+  const masteringPreset = usePsyBoss((s) => s.masteringPreset)
+  const [newClipBars, setNewClipBars] = useState(8)
+
+  const totalBars = arrangement.clips.reduce((acc, c) => acc + c.lengthBars, 0)
+  const clipColors = [
+    'border-emerald-500/50 bg-emerald-500/15',
+    'border-amber-500/50 bg-amber-500/15',
+    'border-cyan-500/50 bg-cyan-500/15',
+    'border-fuchsia-500/50 bg-fuchsia-500/15',
+    'border-violet-500/50 bg-violet-500/15',
+  ]
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-emerald-400" />
+          <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            Arrangement Timeline
+          </h3>
+        </div>
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {arrangement.clips.length} clips · {totalBars} bars
+        </Badge>
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 mb-3">
+        Build a full track by sequencing the current pattern into sections. Each clip renders the
+        pattern for its length, then the whole arrangement is concatenated and mastered.
+      </p>
+
+      {/* Add clip controls */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <div className="flex items-center gap-1">
+          {[4, 8, 16, 32].map((bars) => (
+            <button
+              key={bars}
+              onClick={() => setNewClipBars(bars)}
+              className={`px-2 py-1 rounded-md font-mono text-[10px] font-bold transition-colors ${
+                newClipBars === bars
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-foreground/5 hover:bg-foreground/10 text-muted-foreground'
+              }`}
+            >
+              {bars}
+            </button>
+          ))}
+          <span className="text-[9px] font-mono text-muted-foreground ml-1">bars</span>
+        </div>
+        <Button onClick={() => addClip(newClipBars)} size="sm" className="h-7 px-3 font-mono text-xs bg-emerald-500 hover:bg-emerald-400 text-black">
+          + Add Section
+        </Button>
+        <Button onClick={clear} size="sm" variant="ghost" className="h-7 px-3 font-mono text-xs">
+          <Trash2 className="w-3 h-3 mr-1" />
+          Clear
+        </Button>
+      </div>
+
+      {/* Timeline visualization */}
+      <div className="mb-3">
+        <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+          Timeline
+        </div>
+        {arrangement.clips.length === 0 ? (
+          <div className="p-6 rounded-lg border border-dashed border-border/40 text-center text-[11px] font-mono text-muted-foreground/60">
+            No clips yet. Add sections to build your track.
+          </div>
+        ) : (
+          <div className="flex gap-1 overflow-x-auto pb-2">
+            {arrangement.clips.map((clip, i) => (
+              <div
+                key={clip.id}
+                className={`flex-shrink-0 rounded-lg border p-2 ${clipColors[i % clipColors.length]}`}
+                style={{ minWidth: `${Math.max(60, clip.lengthBars * 8)}px` }}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <select
+                    value={CLIP_LABELS.includes(clip.label as typeof CLIP_LABELS[number]) ? clip.label : 'Drop'}
+                    onChange={(e) => setClipLabel(clip.id, e.target.value)}
+                    className="bg-transparent border-none text-[10px] font-mono font-bold text-foreground/80 outline-none cursor-pointer"
+                  >
+                    {CLIP_LABELS.map((label) => (
+                      <option key={label} value={label} className="bg-background">{label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => removeClip(clip.id)}
+                    className="text-muted-foreground hover:text-red-400 transition-colors"
+                    aria-label="Remove clip"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="text-[9px] font-mono text-muted-foreground">
+                  {clip.lengthBars} bars
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Export */}
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={() => exportArrangement(masteringPreset)}
+          disabled={rendering || arrangement.clips.length === 0}
+          className="flex-1 font-mono text-xs bg-emerald-500 hover:bg-emerald-400 text-black"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          {rendering ? 'Rendering full track...' : `Export Full Track (${masteringPreset === 'off' ? 'raw' : masteringPreset})`}
+        </Button>
+      </div>
+
+      {renderError && (
+        <div className="mt-2 text-[11px] font-mono text-red-400">{renderError}</div>
+      )}
+      {lastExportInfo && !rendering && (
+        <div className="mt-2 text-[11px] font-mono text-muted-foreground">
+          ✓ {lastExportInfo}
+        </div>
+      )}
+      {masteringReport && masteringPreset !== 'off' && !rendering && (
+        <div className="mt-2 p-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 text-[10px] font-mono text-emerald-400">
+          Mastered: {masteringReport.postIntegratedLufs.toFixed(1)} LUFS · peak {masteringReport.postTruePeakDb.toFixed(1)} dBTP
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ── DEVICES PANEL (Scope 3: PSYBUS device adapters) ─────────────────────
 function DevicesPanel() {
   const devices = useDevices((s) => s.devices)
@@ -1358,7 +1503,7 @@ export default function Home() {
 
             {/* ── SEQUENCER + RENDER + SAMPLES + PROJECTS ── */}
             <Tabs defaultValue="sequencer" className="w-full">
-              <TabsList className="grid w-full grid-cols-5 bg-card/40">
+              <TabsList className="grid w-full grid-cols-6 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Music2 className="w-3.5 h-3.5 mr-1.5" />
                   Sequencer
@@ -1379,6 +1524,10 @@ export default function Home() {
                   <Cable className="w-3.5 h-3.5 mr-1.5" />
                   Devices
                 </TabsTrigger>
+                <TabsTrigger value="arrange" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Layers className="w-3.5 h-3.5 mr-1.5" />
+                  Arrange
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="sequencer" className="mt-3">
@@ -1396,6 +1545,9 @@ export default function Home() {
               <TabsContent value="devices" className="mt-3">
                 <DevicesPanel />
               </TabsContent>
+              <TabsContent value="arrange" className="mt-3">
+                <ArrangementPanel />
+              </TabsContent>
             </Tabs>
           </>
         )}
@@ -1409,7 +1561,7 @@ export default function Home() {
             {playing ? 'RUNNING' : 'STOPPED'}
           </div>
           <div className="text-[10px] font-mono text-emerald-400/60">
-            PSYBOSS · v0.8 · MIT
+            PSYBOSS · v0.9 · MIT
           </div>
         </div>
       </footer>
