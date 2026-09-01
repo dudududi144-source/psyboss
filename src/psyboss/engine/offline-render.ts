@@ -192,15 +192,22 @@ async function renderTrackRaw(args: {
   sidechainGain.gain.value = 1.0
   sidechainGain.connect(masterGain)
   const trackGains: GainNode[] = []
+  const trackFilters: BiquadFilterNode[] = []
   for (let t = 0; t < pattern.tracks.length; t++) {
     const g = ctx.createGain()
     g.gain.value = 0.95
+    const filt = ctx.createBiquadFilter()
+    filt.type = 'lowpass'
+    filt.frequency.value = 18000
+    filt.Q.value = 0.7
+    g.connect(filt)
     if (t === 0) {
-      g.connect(masterGain) // kick bypasses the sidechain
+      filt.connect(masterGain) // kick bypasses the sidechain
     } else {
-      g.connect(sidechainGain)
+      filt.connect(sidechainGain)
     }
     trackGains.push(g)
+    trackFilters.push(filt)
   }
 
   // Schedule every step across all bars.
@@ -208,6 +215,27 @@ async function renderTrackRaw(args: {
   const stepSeconds = secPerBar / STEPS_PER_BAR
   for (let bar = 0; bar < bars; bar++) {
     const barStartTime = bar * secPerBar
+
+    // Build-up/drop filter automation (mirror of the live engine) — full mix only,
+    // stems stay clean/unfiltered.
+    if (soloTrack === -1) {
+      const PHRASE = 8
+      if (bar % PHRASE === 0) {
+        const leadFilter = trackFilters[2]
+        if (leadFilter) {
+          leadFilter.frequency.setValueAtTime(700, barStartTime)
+          leadFilter.frequency.exponentialRampToValueAtTime(18000, barStartTime + secPerBar * 4)
+          leadFilter.frequency.setValueAtTime(18000, barStartTime + secPerBar * 4)
+        }
+        const bassFilter = trackFilters[1]
+        if (bassFilter) {
+          bassFilter.frequency.setValueAtTime(900, barStartTime)
+          bassFilter.frequency.exponentialRampToValueAtTime(12000, barStartTime + secPerBar * 4)
+          bassFilter.frequency.setValueAtTime(12000, barStartTime + secPerBar * 4)
+        }
+      }
+    }
+
     const scheduled = collectScheduledSteps(
       pattern,
       0,
