@@ -411,10 +411,13 @@ export function masterBuffer(
 
   // 2. Gain to target loudness.
   let gainDb = targets.targetLufs - pre.integrated
-  // Don't push gain so high that the raw peak would wildly exceed ceiling;
-  // the limiter catches the rest, but we stay sane.
+  // Cap the gain at the available headroom so the pre-limiter peak lands at the
+  // ceiling instead of wildly overshooting it. The limiter still catches the
+  // residual, but this keeps its gain-reduction workload minimal (less pumping).
+  // BUG FIX: was Math.max(gainDb, headroomDb) inside `if (gainDb > headroomDb)`,
+  // a no-op that never actually capped anything.
   const headroomDb = targets.ceilingDb - prePeak
-  if (gainDb > headroomDb) gainDb = Math.max(gainDb, headroomDb)
+  if (gainDb > headroomDb) gainDb = headroomDb
   const gainLin = Math.pow(10, gainDb / 20)
   for (let i = 0; i < left.length; i++) {
     left[i] *= gainLin
