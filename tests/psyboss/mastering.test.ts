@@ -181,6 +181,6 @@ describe('masterBuffer (end-to-end)', () => {
     const report = masterBuffer(left, right, SR, MASTERING_PRESETS.streaming)
     expect(report.preIntegratedLufs).toBeLessThan(report.postIntegratedLufs)
     expect(report.preTruePeakDb).toBeLessThan(report.postTruePeakDb + 0.5)
-    expect(report.blockCount ?? true).toBeDefined()
+    expect(report.appliedGainDb).toBeGreaterThan(0)
   })
 })
