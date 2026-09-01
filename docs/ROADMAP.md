@@ -68,7 +68,7 @@ Beatport (-8 LUFS) or Spotify (-14 LUFS, -1 dBTP), and export a release-ready WA
 - ✅ Song export (full length, not just 4-bar)
 - ✅ Master bus: true-peak limiter + LUFS meter (-8 club / -14 streaming targets)
 - ⏳ ID3/metadata tagging on export (future)
-- ⏳ A/B against reference track (future)
+- ✅ A/B against reference track (loudness-matched, ITU-R BS.1770)
 
 **Exit criteria**: a user can arrange a full track, master it to Beatport (-8 LUFS) or Spotify
 (-14 LUFS, -1 dBTP), and export a release-ready file.
