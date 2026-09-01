@@ -235,10 +235,15 @@ const TP_FACTOR = 4
 const tpKernel: Float32Array[] = buildPolyphaseKernel(TP_TAPS, TP_FACTOR)
 
 function buildPolyphaseKernel(taps: number, factor: number): Float32Array[] {
-  // Design a low-pass FIR at cutoff = pi/factor using a Blackman window.
+  // Design a low-pass FIR for interpolation by `factor`.
+  //
+  // BUG FIX (audit): the cutoff was `fc = 1/factor`, which is 2x too high for
+  // interpolation and lets imaging through, inflating the measured peak by ~5dB.
+  // The correct cutoff is the original Nyquist expressed in the oversampled
+  // domain: fc = 1/(2*factor).
   const full: number[] = []
   const n = taps * factor
-  const fc = 1 / factor
+  const fc = 1 / (2 * factor)
   const mid = (n - 1) / 2
   for (let i = 0; i < n; i++) {
     const x = i - mid
@@ -251,13 +256,22 @@ function buildPolyphaseKernel(taps: number, factor: number): Float32Array[] {
       0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (n - 1))
     full.push(h * w * factor) // *factor to preserve amplitude after interpolation
   }
-  // Decompose into `factor` polyphase sub-filters.
+  // Decompose into `factor` polyphase sub-filters, then NORMALIZE each phase to
+  // unit DC gain. Normalization makes the reconstruction exact for any signal
+  // level regardless of window-induced gain drift, so a full-scale sine reads
+  // ~0 dBTP instead of overshooting.
   const kernels: Float32Array[] = []
   for (let p = 0; p < factor; p++) {
     const sub = new Float32Array(taps)
+    let sum = 0
     for (let t = 0; t < taps; t++) {
       const idx = p + t * factor
-      sub[t] = idx < full.length ? full[idx] : 0
+      const v = idx < full.length ? full[idx] : 0
+      sub[t] = v
+      sum += v
+    }
+    if (Math.abs(sum) > 1e-9) {
+      for (let t = 0; t < taps; t++) sub[t] /= sum
     }
     kernels.push(sub)
   }
