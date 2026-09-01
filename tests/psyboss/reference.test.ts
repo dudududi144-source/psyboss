@@ -51,8 +51,9 @@ describe('compareLoudness', () => {
   it('exactly matched at identical loudness', () => {
     const ref = makeRef(-14)
     const result = compareLoudness(-14, ref)
-    expect(result.deltaLu).toBe(0)
-    expect(result.gainToMatchDb).toBe(0)
+    // toBeCloseTo (not toBe) — -(0) yields -0, and Object.is(-0, 0) is false.
+    expect(result.deltaLu).toBeCloseTo(0, 10)
+    expect(result.gainToMatchDb).toBeCloseTo(0, 10)
     expect(result.verdict).toContain('Loudness-matched')
   })
 })
