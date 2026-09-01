@@ -43,6 +43,12 @@ import {
   type ArrangementClip,
 } from './engine/arrangement'
 import { renderArrangement } from './engine/offline-render'
+import {
+  analyzeReference,
+  compareLoudness,
+  type ReferenceAnalysis,
+  type ABComparison,
+} from './engine/reference'
 import { downloadWav } from './engine/wav-encoder'
 
 // ── Transport + UI state ──────────────────────────────────────────────────────
@@ -767,4 +773,52 @@ export const useArrangement = create<ArrangementStore>((set, get) => ({
       })
     }
   },
+}))
+
+
+// ── Reference A/B store (Scope 4: loudness-matched comparison) ───────────
+export interface ReferenceStore {
+  reference: ReferenceAnalysis | null
+  comparison: ABComparison | null
+  analyzing: boolean
+  error: string | null
+
+  loadReference: (file: File) => Promise<void>
+  /** Compare the given master LUFS against the loaded reference. */
+  compare: (myLufs: number) => void
+  clear: () => void
+}
+
+export const useReference = create<ReferenceStore>((set, get) => ({
+  reference: null,
+  comparison: null,
+  analyzing: false,
+  error: null,
+
+  loadReference: async (file) => {
+    set({ analyzing: true, error: null })
+    try {
+      // A temporary context is fine for decoding; we don't play through it.
+      const ctx = new AudioContext()
+      const analysis = await analyzeReference(file, ctx)
+      await ctx.close()
+      set({ reference: analysis, analyzing: false })
+    } catch (err) {
+      set({
+        analyzing: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  },
+
+  compare: (myLufs) => {
+    const { reference } = get()
+    if (!reference) {
+      set({ error: 'Load a reference track first.' })
+      return
+    }
+    set({ comparison: compareLoudness(myLufs, reference) })
+  },
+
+  clear: () => set({ reference: null, comparison: null, error: null }),
 }))
