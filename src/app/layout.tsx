@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
+// Base path for GitHub Pages deployment (empty locally). Must match next.config.ts.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+
 export const metadata: Metadata = {
   title: "PSYBOSS — Performance Sampler & Conductor",
   description:
@@ -18,7 +21,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "PSY Family" }],
   icons: {
-    icon: "/logo.svg",
+    icon: `${basePath}/logo.svg`,
   },
   openGraph: {
     title: "PSYBOSS",
