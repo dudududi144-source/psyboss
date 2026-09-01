@@ -105,6 +105,76 @@ export class PsyBossAnthemAdapter extends DeviceAdapter {
     this.anthem.reportTelemetry()
   }
 
+  // ---- Phase 12: morphing + live automation --------------------------
+
+  /**
+   * Start morphing the hosted composition into another scene.
+   * Scene configs are psy-anthem AnthemConfig objects (unknown here: psyboss
+   * never imports psy-anthem). The morph.start envelope reaches the engine,
+   * which generates both scenes and blends emissions as morph.update arrives.
+   */
+  startMorph(
+    fromScene: unknown,
+    toScene: unknown,
+    durationBars: number,
+    curve: 'linear' | 'exponential' | 'bezier' = 'linear',
+  ): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'morph.start', fromScene, toScene, durationBars, curve },
+    })
+  }
+
+  /** Drive the morph progress (0-1), typically from the transport clock. */
+  updateMorph(progress: number): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'morph.update', progress: Math.max(0, Math.min(1, progress)) },
+    })
+  }
+
+  /**
+   * Start a live parameter automation on the hosted engine.
+   * param: 'velocity' | 'duration' | 'pitch'; values are automation space
+   * (velocity/duration multipliers; pitch in [-1, 1] octaves).
+   */
+  startAutomation(
+    param: string,
+    startValue: number,
+    endValue: number,
+    durationBeats: number,
+    curve: 'linear' | 'exponential' | 'bezier' = 'linear',
+  ): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'automation.start', param, startValue, endValue, durationBeats, curve },
+    })
+  }
+
+  /** Stop a running automation. */
+  stopAutomation(param: string): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'automation.stop', param },
+    })
+  }
+
   // ---- DeviceAdapter abstract implementation: forward to the engine ----
 
   protected onTransport(
