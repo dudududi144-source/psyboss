@@ -28,6 +28,7 @@ import {
   type SampleRef,
 } from '@/psybus/types'
 import { renderSoundBank, dspProvenance, TRACK_NAMES } from './dsp'
+import { mulberry32 } from './rng'
 import { collectScheduledSteps, type Pattern, type ParameterLock, STEPS_PER_BAR } from './sequencer'
 import { SampleLibrary, type LoadedSample, type SampleMetadata, validateMetadata } from './sample-library'
 
@@ -61,6 +62,8 @@ export class AudioEngine {
   private clockNode: AudioWorkletNode | null = null
   private masterGain: GainNode | null = null
   private limiter: DynamicsCompressorNode | null = null
+  private delaySend: GainNode | null = null
+  private reverbSend: GainNode | null = null
 
   private trackGains: GainNode[] = []
   private soundBank: Map<string, AudioBuffer> = new Map()
@@ -175,7 +178,13 @@ export class AudioEngine {
       this.trackGains.push(g)
     }
 
-    this.masterGain.connect(this.limiter)
+    // ── Effects bus (modern production polish) ──
+    // masterGain feeds the dry path AND two sends: a stereo tempo delay and a
+    // convolver reverb. Both returns sum into the limiter so the whole mix is
+    // glued + limited together — this is what makes it sound produced, not dry.
+    this.buildFxBus(ctx)
+
+    this.masterGain.connect(this.limiter) // dry
     this.limiter.connect(this.clockNode)
     this.clockNode.connect(ctx.destination)
 
@@ -384,6 +393,73 @@ export class AudioEngine {
 
   getPattern(): Pattern | null {
     return this.currentPattern
+  }
+
+  /**
+   * Build the effects bus: a stereo tempo delay (damped feedback, ping-pong-ish)
+   * and a convolver reverb, both summed into the limiter. This is the production
+   * polish that turns dry one-shots into a spacious, glued mix.
+   */
+  private buildFxBus(ctx: AudioContext): void {
+    // ── Stereo tempo delay ──
+    // Two delays at related times (3:4) for rhythmic stereo movement. Feedback
+    // loops run through a lowpass so repeats get darker (classic psy technique).
+    this.delaySend = ctx.createGain()
+    this.delaySend.gain.value = 0.26
+    const dTime = 0.34
+    const delayL = ctx.createDelay(2.0)
+    delayL.delayTime.value = dTime
+    const delayR = ctx.createDelay(2.0)
+    delayR.delayTime.value = dTime * 0.75
+    const fbL = ctx.createGain()
+    fbL.gain.value = 0.38
+    const fbR = ctx.createGain()
+    fbR.gain.value = 0.38
+    const dampL = ctx.createBiquadFilter()
+    dampL.type = 'lowpass'
+    dampL.frequency.value = 2800
+    const dampR = ctx.createBiquadFilter()
+    dampR.type = 'lowpass'
+    dampR.frequency.value = 2800
+
+    this.masterGain!.connect(this.delaySend)
+    this.delaySend.connect(delayL)
+    this.delaySend.connect(delayR)
+    delayL.connect(dampL)
+    dampL.connect(fbL)
+    fbL.connect(delayL)
+    delayR.connect(dampR)
+    dampR.connect(fbR)
+    fbR.connect(delayR)
+    const delayMerge = ctx.createChannelMerger(2)
+    delayL.connect(delayMerge, 0, 0)
+    delayR.connect(delayMerge, 0, 1)
+    delayMerge.connect(this.limiter!)
+
+    // ── Convolver reverb (deterministic generated IR) ──
+    this.reverbSend = ctx.createGain()
+    this.reverbSend.gain.value = 0.16
+    const convolver = ctx.createConvolver()
+    convolver.buffer = this.createReverbIR(ctx, 2.4)
+    this.masterGain!.connect(this.reverbSend)
+    this.reverbSend.connect(convolver)
+    convolver.connect(this.limiter!)
+  }
+
+  /** Generate a deterministic stereo reverb impulse response (decaying noise). */
+  private createReverbIR(ctx: AudioContext, duration: number): AudioBuffer {
+    const rate = ctx.sampleRate
+    const length = Math.floor(rate * duration)
+    const impulse = ctx.createBuffer(2, length, rate)
+    const rng = mulberry32((0x5eed ^ this.seed) >>> 0)
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch)
+      for (let i = 0; i < length; i++) {
+        const decay = Math.pow(1 - i / length, 2.8)
+        data[i] = (rng() * 2 - 1) * decay * 0.5
+      }
+    }
+    return impulse
   }
 
   /** Get the sample library (for UI to add/list samples). */
