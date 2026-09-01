@@ -416,10 +416,13 @@ export const usePattern = create<PatternStore>((set, get) => ({
     usePsyBoss.setState({ bpm: preset.bpm })
     if (engine) {
       engine.setBpm(preset.bpm)
-      if (usePsyBoss.getState().patternEnabled) {
-        engine.setPattern(pattern)
-      }
     }
+    // BUG FIX (silent presets): this used to gate engine.setPattern on
+    // patternEnabled, which defaults to false — so the engine never received the
+    // preset and pressing Play was silent. Loading a preset means the user wants
+    // to hear it, so enable pattern playback and push the pattern to the engine.
+    // setPatternEnabled(true) reads the freshly-set pattern from usePattern.
+    usePsyBoss.getState().setPatternEnabled(true)
   },
 }))
 
