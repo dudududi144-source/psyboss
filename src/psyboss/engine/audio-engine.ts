@@ -65,6 +65,8 @@ export class AudioEngine {
   private delaySend: GainNode | null = null
   private reverbSend: GainNode | null = null
   private sidechainGain: GainNode | null = null
+  private trackFilters: BiquadFilterNode[] = []
+  private filterAutoEnabled = true
 
   private trackGains: GainNode[] = []
   private soundBank: Map<string, AudioBuffer> = new Map()
@@ -183,12 +185,19 @@ export class AudioEngine {
     for (let i = 0; i < TRACK_NAMES.length; i++) {
       const g = ctx.createGain()
       g.gain.value = 0.95
+      // Per-track lowpass for build-up/drop filter automation (commercial movement).
+      const filt = ctx.createBiquadFilter()
+      filt.type = 'lowpass'
+      filt.frequency.value = 18000 // open by default
+      filt.Q.value = 0.7
+      g.connect(filt)
       if (i === 0) {
-        g.connect(this.masterGain) // kick bypasses the sidechain
+        filt.connect(this.masterGain) // kick bypasses the sidechain
       } else {
-        g.connect(this.sidechainGain)
+        filt.connect(this.sidechainGain)
       }
       this.trackGains.push(g)
+      this.trackFilters.push(filt)
     }
 
     // ── Effects bus (modern production polish) ──
@@ -570,6 +579,30 @@ export class AudioEngine {
     if (this.currentPattern && this.transport.playing && this.transport.bar !== this.lastScheduledBar) {
       const currentBar = this.transport.bar
       this.lastScheduledBar = currentBar
+
+      // ── Filter automation: the commercial build-up/drop movement ──
+      // Every 8-bar phrase the LEAD filter sweeps open over the first 4 bars
+      // (build-up tension) then stays open for 4 bars (release). This is the
+      // evolving motion that separates a static loop from a living psytrance track.
+      if (this.filterAutoEnabled && this.trackFilters.length > 2) {
+        const PHRASE = 8
+        const barInPhrase = currentBar % PHRASE
+        if (barInPhrase === 0) {
+          const leadFilter = this.trackFilters[2] // LEAD
+          const openHz = 18000
+          const closedHz = 700
+          leadFilter.frequency.cancelScheduledValues(barStartTime)
+          leadFilter.frequency.setValueAtTime(closedHz, barStartTime)
+          leadFilter.frequency.exponentialRampToValueAtTime(openHz, barStartTime + secPerBar * 4)
+          leadFilter.frequency.setValueAtTime(openHz, barStartTime + secPerBar * 4)
+          // Bass gets a gentler opening so the low end breathes without losing weight.
+          const bassFilter = this.trackFilters[1]
+          bassFilter.frequency.cancelScheduledValues(barStartTime)
+          bassFilter.frequency.setValueAtTime(900, barStartTime)
+          bassFilter.frequency.exponentialRampToValueAtTime(12000, barStartTime + secPerBar * 4)
+          bassFilter.frequency.setValueAtTime(12000, barStartTime + secPerBar * 4)
+        }
+      }
 
       // Current bar (bar N): schedule steps from barStartTime onward.
       // Steps already in the past (we're mid-bar) are skipped.
