@@ -27,7 +27,7 @@ import {
   type BusEnvelope,
   type SampleRef,
 } from '@/psybus/types'
-import { renderSoundBank, dspProvenance } from './dsp'
+import { renderSoundBank, dspProvenance, TRACK_NAMES } from './dsp'
 import { collectScheduledSteps, type Pattern, type ParameterLock, STEPS_PER_BAR } from './sequencer'
 import { SampleLibrary, type LoadedSample, type SampleMetadata, validateMetadata } from './sample-library'
 
@@ -168,7 +168,7 @@ export class AudioEngine {
       outputChannelCount: [2],
     })
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < TRACK_NAMES.length; i++) {
       const g = ctx.createGain()
       g.gain.value = 0.75
       g.connect(this.masterGain)
