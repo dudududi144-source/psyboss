@@ -6,7 +6,7 @@
  * that encodes the mastering judgment.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'bun:test'
 import { compareLoudness, type ReferenceAnalysis } from '@/psyboss/engine/reference'
 
 function makeRef(integratedLufs: number): ReferenceAnalysis {
