@@ -113,6 +113,19 @@ export class AudioEngine {
     return () => this.meterListeners.delete(fn)
   }
 
+  /**
+   * Resolve a public-asset URL relative to the document base URI.
+   * Handles the GitHub Pages basePath (/psyboss) transparently: on Pages the
+   * baseURI already includes the subpath, so relative resolution lands on the
+   * correct file. Locally the baseURI is the server root, so it resolves there.
+   */
+  private resolveAssetUrl(relativePath: string): string {
+    if (typeof document === 'undefined') return '/' + relativePath
+    let base = document.baseURI
+    if (!base.endsWith('/')) base += '/'
+    return new URL(relativePath, base).toString()
+  }
+
   private emitTransport() {
     const t = this.currentTransport
     this.transportListeners.forEach((l) => l(t))
@@ -129,7 +142,12 @@ export class AudioEngine {
     const ctx = new AudioContext({ latencyHint: 'interactive' })
     this.ctx = ctx
 
-    await ctx.audioWorklet.addModule('/worklets/psyboss-clock.js')
+    // Resolve the worklet URL relative to the document base so it works both
+    // locally (no basePath) and on GitHub Pages (basePath = /psyboss).
+    // ROAST-6 #A fix: was hardcoded '/worklets/psyboss-clock.js' which 404s on
+    // GitHub Pages because the absolute path ignores the /psyboss basePath.
+    const workletUrl = this.resolveAssetUrl('worklets/psyboss-clock.js')
+    await ctx.audioWorklet.addModule(workletUrl)
     this.workletReady = true
 
     // ── Master bus graph ──
