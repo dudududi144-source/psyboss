@@ -523,6 +523,53 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * PERFORMANCE + MORPHING: play two scenes of a track crossfaded by `morph`.
+   * morph=0 -> scene 0 only, morph=1 -> scene 1 only, in between -> crossfade.
+   * This is the Octatrack-style crossfader: blend between two scene sounds in
+   * real time. Both buffers play at the same pitch (semitones), gains crossfaded.
+   */
+  playMorph(track: number, semitones: number, morph: number, velocity: number = 0.8): void {
+    if (!this.ctx) return
+    const m = Math.max(0, Math.min(1, morph))
+    const bufA = this.soundBank.get(`${track}:0`)
+    const bufB = this.soundBank.get(`${track}:1`)
+    const vel = Math.max(0, Math.min(1, velocity))
+    const rate = Math.pow(2, semitones / 12)
+    const dest = this.trackGains[track] ?? this.masterGain!
+
+    const spawn = (buf: AudioBuffer | undefined, gainVal: number) => {
+      if (!buf || gainVal < 0.001) return
+      if (this.activeVoices.size >= VOICE_CAP) {
+        const oldest = this.activeVoices.values().next().value
+        if (oldest) {
+          this.activeVoices.delete(oldest)
+          try { oldest.stop() } catch { /* already stopped */ }
+          try { oldest.disconnect() } catch { /* already disconnected */ }
+        }
+      }
+      const src = this.ctx!.createBufferSource()
+      src.buffer = buf
+      src.playbackRate.value = rate
+      const g = this.ctx!.createGain()
+      g.gain.value = gainVal
+      src.connect(g)
+      g.connect(dest)
+      this.activeVoices.add(src)
+      src.onended = () => {
+        this.activeVoices.delete(src)
+        try { src.disconnect() } catch { /* already disconnected */ }
+      }
+      src.start()
+    }
+
+    spawn(bufA, (1 - m) * vel)
+    spawn(bufB, m * vel)
+    if (track === 0 && this.ctx) {
+      this.triggerSidechainDuck(this.ctx.currentTime)
+    }
+  }
+
   /** PERFORMANCE: per-track volume (live mixing fader). */
   setTrackVolume(track: number, volume: number): void {
     if (!this.ctx || !this.trackGains[track]) return
