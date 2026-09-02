@@ -88,18 +88,21 @@ function buildFullOn(): Pattern {
   // Clap on 2 & 4.
   set(p, T.CLAP, 4)
   set(p, T.CLAP, 12)
-  // Lead: sparse squelch accents.
-  set(p, T.LEAD, 0, 0)
-  set(p, T.LEAD, 10, 1)
-  // Arp: quick run at the end of the bar.
+  // Lead: hypnotic minor-scale melody (scenes 0-7 = full natural-minor scale).
+  set(p, T.LEAD, 0, 0)   // root
+  set(p, T.LEAD, 6, 4)   // fifth
+  set(p, T.LEAD, 8, 2)   // minor 3rd
+  set(p, T.LEAD, 10, 4)  // fifth
+  set(p, T.LEAD, 14, 7)  // octave
+  // Arp: ascending minor arpeggio root→3rd→5th→octave.
   set(p, T.ARP, 12, 0)
-  set(p, T.ARP, 13, 1)
-  set(p, T.ARP, 14, 2)
-  set(p, T.ARP, 15, 3)
-  // Pluck: a syncopated melodic hook over the roll.
-  set(p, T.PLUCK, 3, 0)
-  set(p, T.PLUCK, 7, 1)
-  set(p, T.PLUCK, 11, 2)
+  set(p, T.ARP, 13, 2)
+  set(p, T.ARP, 14, 4)
+  set(p, T.ARP, 15, 7)
+  // Pluck: syncopated melodic hook over the roll.
+  set(p, T.PLUCK, 3, 4)   // fifth
+  set(p, T.PLUCK, 7, 2)   // minor 3rd
+  set(p, T.PLUCK, 11, 7)  // octave
   return p
 }
 
