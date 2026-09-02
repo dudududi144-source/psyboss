@@ -15,6 +15,7 @@ import {
   type MeterState,
 } from './engine/audio-engine'
 import type { LoadedSample, SampleMetadata } from './engine/sample-library'
+import { sectionAtBar } from './engine/song-structure'
 import {
   createPattern,
   toggleStep,
@@ -59,6 +60,8 @@ export interface PsyBossState {
   initError: string | null
   bpm: number
   masterFilterHz: number
+  songMode: boolean
+  currentSection: string
   beat: number
   bar: number
   phase: number
@@ -74,6 +77,7 @@ export interface PsyBossState {
   togglePlay: () => void
   setBpm: (bpm: number) => void
   setMasterFilter: (hz: number) => void
+  toggleSongMode: () => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -132,6 +136,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   initError: null,
   bpm: 144,
   masterFilterHz: 19000,
+  songMode: false,
+  currentSection: 'INTRO',
   beat: 0,
   bar: 0,
   phase: 0,
@@ -156,7 +162,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
       engine = getEngine()
       if (!wired) {
         engine.onTransport((t: TransportState) => {
-          set({ bpm: t.bpm, beat: t.beat, bar: t.bar, phase: t.phase, playing: t.playing })
+          const sectionName = get().songMode ? sectionAtBar(t.bar).section.name : get().currentSection
+          set({ bpm: t.bpm, beat: t.beat, bar: t.bar, phase: t.phase, playing: t.playing, currentSection: sectionName })
         })
         engine.onMeter((m: MeterState) => {
           useMeter.setState({ rms: m.rms, peak: m.peak })
@@ -187,6 +194,12 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   setMasterFilter: (hz: number) => {
     if (engine) engine.setMasterFilter(hz)
     set({ masterFilterHz: hz })
+  },
+
+  toggleSongMode: () => {
+    const next = !get().songMode
+    if (engine) engine.setSongMode(next)
+    set({ songMode: next, currentSection: next ? sectionAtBar(get().bar).section.name : 'INTRO' })
   },
 
   trig: (track: number, scene: number) => {
