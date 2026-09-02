@@ -382,8 +382,9 @@ export function renderLead(sampleRate: number, variant: number, seed: number): S
   const right = new Float32Array(n)
 
   const root = 220 // A3
-  const intervals = [1, 1.5, 2, 3][variant] ?? 1 // root, fifth, octave, octave+fifth
-  const freq = root * intervals
+  // Full natural-minor (aeolian) scale across 8 scenes — real melodic range.
+  const SCALE = [0, 2, 3, 5, 7, 8, 10, 12]
+  const freq = root * Math.pow(2, (SCALE[variant % SCALE.length] ?? 0) / 12)
 
   // MODERN: 7-voice supersaw, per-variant detune width.
   const nVoices = 7
@@ -433,8 +434,9 @@ export function renderArp(sampleRate: number, variant: number, seed: number): St
   const right = new Float32Array(n)
 
   const root = 440 // A4
-  const intervals = [1, 1.25, 1.5, 2][variant] ?? 1
-  const freq = root * intervals
+  // Full natural-minor (aeolian) scale across 8 scenes — real melodic range.
+  const SCALE = [0, 2, 3, 5, 7, 8, 10, 12]
+  const freq = root * Math.pow(2, (SCALE[variant % SCALE.length] ?? 0) / 12)
   const res = [1.2, 1.5, 1.0, 1.7][variant] ?? 1.3
   const fStart = [3200, 2800, 3600, 2400][variant] ?? 3000
   const fEnd = [600, 500, 700, 450][variant] ?? 550
@@ -471,8 +473,9 @@ export function renderPad(sampleRate: number, variant: number, seed: number): St
   const right = new Float32Array(n)
 
   const root = 110 // A2
-  const intervals = [1, 1.5, 1.335, 2][variant] ?? 1
-  const freq = root * intervals
+  // Full natural-minor (aeolian) scale across 8 scenes — real melodic range.
+  const SCALE = [0, 2, 3, 5, 7, 8, 10, 12]
+  const freq = root * Math.pow(2, (SCALE[variant % SCALE.length] ?? 0) / 12)
 
   // MODERN: lush 5-voice supersaw, L/R detuned independently for stereo width.
   const nVoices = 5
@@ -586,8 +589,9 @@ export function renderRollBass(sampleRate: number, variant: number, seed: number
   const right = new Float32Array(n)
 
   const root = 55 // A1
-  const intervals = [1, 1, 1.5, 2][variant] ?? 1
-  const freq = root * intervals
+  // Rolling psy bass stays root-heavy with fifth/octave movement.
+  const BASS_SCALE = [0, 0, 7, 12, 0, 3, 7, 12]
+  const freq = root * Math.pow(2, (BASS_SCALE[variant % BASS_SCALE.length] ?? 0) / 12)
   // MODERN: higher ladder resonance for an aggressive, audible mid growl.
   const res = [2.0, 2.6, 1.6, 3.0][variant] ?? 2.3
   const fStart = [900, 1200, 750, 1500][variant] ?? 1050
@@ -635,8 +639,9 @@ export function renderStab(sampleRate: number, variant: number, seed: number): S
   const right = new Float32Array(n)
 
   const root = 220 // A3
-  const intervals = [1, 1.5, 1.335, 2][variant] ?? 1
-  const baseFreq = root * intervals
+  // Full natural-minor (aeolian) scale across 8 scenes — real melodic range.
+  const SCALE = [0, 2, 3, 5, 7, 8, 10, 12]
+  const baseFreq = root * Math.pow(2, (SCALE[variant % SCALE.length] ?? 0) / 12)
   const chordRatios = [1, 1.5, 2] // root, fifth, octave
 
   const nVoicesPerNote = 3
@@ -687,8 +692,9 @@ export function renderPluck(sampleRate: number, variant: number, seed: number): 
   const right = new Float32Array(n)
 
   const root = 440 // A4
-  const intervals = [1, 1.25, 1.5, 2][variant] ?? 1
-  const freq = root * intervals
+  // Full natural-minor (aeolian) scale across 8 scenes — real melodic range.
+  const SCALE = [0, 2, 3, 5, 7, 8, 10, 12]
+  const freq = root * Math.pow(2, (SCALE[variant % SCALE.length] ?? 0) / 12)
 
   const res = 1.8
   const fStart = 4000
@@ -728,7 +734,7 @@ const RENDERERS = [
 ]
 
 export const TRACK_NAMES = ['KICK', 'BASS', 'LEAD', 'ARP', 'HAT', 'CLAP', 'PAD', 'FX', 'STAB', 'PLUCK'] as const
-export const SCENE_COUNT = 4
+export const SCENE_COUNT = 8
 
 /**
  * Render the full sound bank. Deterministic: same (sampleRate, seed) → byte-identical
