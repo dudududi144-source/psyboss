@@ -69,6 +69,8 @@ export class AudioEngine {
   private trackFilters: BiquadFilterNode[] = []
   private filterAutoEnabled = true
   private masterFilter: BiquadFilterNode | null = null
+  private trackLFOOscs: OscillatorNode[] = []
+  private trackLFODepthGains: GainNode[] = []
   private songMode = false
   private lastSectionIndex = -1
 
@@ -213,6 +215,16 @@ export class AudioEngine {
       }
       this.trackGains.push(g)
       this.trackFilters.push(filt)
+      // Per-track filter LFO — adds movement to the sound (like Serum's LFOs).
+      const lfo = ctx.createOscillator()
+      lfo.frequency.value = 1
+      const lfoDepth = ctx.createGain()
+      lfoDepth.gain.value = 0 // off by default
+      lfo.connect(lfoDepth)
+      lfoDepth.connect(filt.frequency)
+      lfo.start()
+      this.trackLFOOscs.push(lfo)
+      this.trackLFODepthGains.push(lfoDepth)
     }
 
     // ── Effects bus (modern production polish) ──
@@ -516,6 +528,21 @@ export class AudioEngine {
     if (!this.ctx || !this.trackGains[track]) return
     const target = muted ? 0.0001 : 0.95
     this.trackGains[track].gain.setTargetAtTime(target, this.ctx.currentTime, 0.02)
+  }
+
+  /**
+   * MODULATION: per-track filter LFO. Modulates the track's lowpass cutoff with
+   * an LFO — the movement that makes electronic sounds come alive (à la Serum).
+   * rate in Hz, depthPct 0-100 (0 = off). Depth maps to +/-5000 Hz of cutoff swing.
+   */
+  setTrackLFO(track: number, rate: number, depthPct: number): void {
+    if (!this.ctx) return
+    const lfo = this.trackLFOOscs[track]
+    const depth = this.trackLFODepthGains[track]
+    if (!lfo || !depth) return
+    lfo.frequency.setTargetAtTime(Math.max(0.05, rate), this.ctx.currentTime, 0.02)
+    const depthHz = (Math.max(0, Math.min(100, depthPct)) / 100) * 5000
+    depth.gain.setTargetAtTime(depthHz, this.ctx.currentTime, 0.02)
   }
 
   /** Set the current pattern for sequencer playback. null = scene-matrix only. */
