@@ -1367,6 +1367,8 @@ export default function Home() {
   const init = usePsyBoss((s) => s.init)
   const togglePlay = usePsyBoss((s) => s.togglePlay)
   const setBpm = usePsyBoss((s) => s.setBpm)
+  const masterFilterHz = usePsyBoss((s) => s.masterFilterHz)
+  const setMasterFilter = usePsyBoss((s) => s.setMasterFilter)
   const trig = usePsyBoss((s) => s.trig)
 
   const [booted, setBooted] = useState(false)
@@ -1500,6 +1502,28 @@ export default function Home() {
           <div className="flex flex-col gap-1 flex-1 min-w-[140px] md:min-w-[220px]">
             <MeterBar label="PK" accent="bg-gradient-to-r from-emerald-500 to-amber-400" />
             <MeterBar label="RMS" accent="bg-gradient-to-r from-emerald-600 to-emerald-400" />
+          </div>
+
+          {/* Master performance filter — real-time DJ-style sweep over the whole mix */}
+          <div className="hidden lg:flex items-center gap-2 min-w-[180px]">
+            <span className="text-[10px] font-mono uppercase text-muted-foreground whitespace-nowrap">Filter</span>
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={Math.round(1000 * Math.log(Math.max(masterFilterHz, 60) / 60) / Math.log(19000 / 60))}
+              onChange={(e) => {
+                const slider = Number(e.target.value)
+                const hz = 60 * Math.pow(19000 / 60, slider / 1000)
+                setMasterFilter(Math.round(hz))
+              }}
+              onDoubleClick={() => setMasterFilter(19000)}
+              className="w-28 accent-emerald-500 cursor-pointer"
+              aria-label="Master performance filter cutoff"
+            />
+            <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-12 text-right whitespace-nowrap">
+              {masterFilterHz >= 1000 ? `${(masterFilterHz / 1000).toFixed(1)}k` : `${Math.round(masterFilterHz)}`}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
