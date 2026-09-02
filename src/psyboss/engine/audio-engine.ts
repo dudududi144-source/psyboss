@@ -570,6 +570,55 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * PERFORMANCE + SLICING: play a specific slice of a loaded sample.
+   * Cuts the sample into numSlices equal parts on the fly and plays sliceIndex.
+   * This is the Octatrack-style slice playback for fills, breaks, and stutters.
+   */
+  playSlice(sampleId: string, sliceIndex: number, numSlices: number, velocity: number = 0.8): void {
+    if (!this.ctx || !this.sampleLibrary) return
+    const loaded = this.sampleLibrary.get(sampleId)
+    if (!loaded) return
+    const buffer = loaded.buffer
+    const totalFrames = buffer.length
+    const n = Math.max(1, Math.floor(numSlices))
+    const idx = Math.max(0, Math.min(n - 1, Math.floor(sliceIndex)))
+    const framesPerSlice = Math.floor(totalFrames / n)
+    const startFrame = idx * framesPerSlice
+    const endFrame = idx === n - 1 ? totalFrames : (idx + 1) * framesPerSlice
+    const sliceFrames = Math.max(1, endFrame - startFrame)
+
+    const sliceBuffer = this.ctx.createBuffer(buffer.numberOfChannels, sliceFrames, buffer.sampleRate)
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const srcData = buffer.getChannelData(ch)
+      const sliceData = sliceBuffer.getChannelData(ch)
+      for (let f = 0; f < sliceFrames; f++) {
+        sliceData[f] = srcData[startFrame + f] ?? 0
+      }
+    }
+
+    if (this.activeVoices.size >= VOICE_CAP) {
+      const oldest = this.activeVoices.values().next().value
+      if (oldest) {
+        this.activeVoices.delete(oldest)
+        try { oldest.stop() } catch { /* already stopped */ }
+        try { oldest.disconnect() } catch { /* already disconnected */ }
+      }
+    }
+    const src = this.ctx.createBufferSource()
+    src.buffer = sliceBuffer
+    const gain = this.ctx.createGain()
+    gain.gain.value = Math.max(0, Math.min(1, velocity))
+    src.connect(gain)
+    gain.connect(this.masterGain!)
+    this.activeVoices.add(src)
+    src.onended = () => {
+      this.activeVoices.delete(src)
+      try { src.disconnect() } catch { /* already disconnected */ }
+    }
+    src.start()
+  }
+
   /** PERFORMANCE: per-track volume (live mixing fader). */
   setTrackVolume(track: number, volume: number): void {
     if (!this.ctx || !this.trackGains[track]) return
