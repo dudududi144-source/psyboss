@@ -181,6 +181,11 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     set({ bpm: clamped })
   },
 
+  setMasterFilter: (hz: number) => {
+    if (engine) engine.setMasterFilter(hz)
+    set({ masterFilterHz: hz })
+  },
+
   trig: (track: number, scene: number) => {
     if (!engine) return
     engine.requestTrig(track, scene)
