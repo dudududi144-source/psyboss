@@ -1370,6 +1370,12 @@ function PerformancePanel() {
   const trackLFORates = usePsyBoss((s) => s.trackLFORates)
   const trackLFODepths = usePsyBoss((s) => s.trackLFODepths)
   const setTrackLFO = usePsyBoss((s) => s.setTrackLFO)
+  const chorusAmount = usePsyBoss((s) => s.chorusAmount)
+  const phaserAmount = usePsyBoss((s) => s.phaserAmount)
+  const exciterAmount = usePsyBoss((s) => s.exciterAmount)
+  const setChorus = usePsyBoss((s) => s.setChorus)
+  const setPhaser = usePsyBoss((s) => s.setPhaser)
+  const setExciter = usePsyBoss((s) => s.setExciter)
 
   const playableTracks = [
     { idx: 2, name: 'LEAD' },
@@ -1493,6 +1499,49 @@ function PerformancePanel() {
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Master FX — chorus / phaser / exciter */}
+      <div className="mt-3 pt-3 border-t border-border/40">
+        <div className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Master FX</div>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="w-16 font-mono text-[10px] text-muted-foreground">CHORUS</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round((chorusAmount ?? 0) * 100)}
+              onChange={(e) => setChorus(Number(e.target.value) / 100)}
+              className="flex-1 accent-cyan-400 cursor-pointer h-1"
+              aria-label="Chorus amount"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 font-mono text-[10px] text-muted-foreground">PHASER</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round((phaserAmount ?? 0) * 100)}
+              onChange={(e) => setPhaser(Number(e.target.value) / 100)}
+              className="flex-1 accent-fuchsia-400 cursor-pointer h-1"
+              aria-label="Phaser amount"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 font-mono text-[10px] text-muted-foreground">EXCITER</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round((exciterAmount ?? 0) * 100)}
+              onChange={(e) => setExciter(Number(e.target.value) / 100)}
+              className="flex-1 accent-amber-400 cursor-pointer h-1"
+              aria-label="Exciter amount"
+            />
+          </div>
         </div>
       </div>
     </Card>
