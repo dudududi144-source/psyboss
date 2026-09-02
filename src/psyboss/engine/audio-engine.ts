@@ -30,6 +30,7 @@ import {
 import { renderSoundBank, dspProvenance, TRACK_NAMES } from './dsp'
 import { mulberry32 } from './rng'
 import { collectScheduledSteps, type Pattern, type ParameterLock, STEPS_PER_BAR } from './sequencer'
+import { sectionAtBar } from './song-structure'
 import { SampleLibrary, type LoadedSample, type SampleMetadata, validateMetadata } from './sample-library'
 
 export interface TransportState {
@@ -68,6 +69,8 @@ export class AudioEngine {
   private trackFilters: BiquadFilterNode[] = []
   private filterAutoEnabled = true
   private masterFilter: BiquadFilterNode | null = null
+  private songMode = false
+  private lastSectionIndex = -1
 
   private trackGains: GainNode[] = []
   private soundBank: Map<string, AudioBuffer> = new Map()
@@ -444,6 +447,26 @@ export class AudioEngine {
     this.masterFilter.frequency.setTargetAtTime(clamped, this.ctx.currentTime, 0.02)
   }
 
+  /**
+   * Song mode: when ON, the engine applies the SONG_STRUCTURE arc live —
+   * muting/unmuting tracks per section so the set evolves like a real track.
+   * When OFF, all tracks play at their normal level.
+   */
+  setSongMode(on: boolean): void {
+    this.songMode = on
+    this.lastSectionIndex = -1 // force re-evaluation on next bar
+    if (!on && this.ctx) {
+      // Restore all track gains to normal.
+      for (const g of this.trackGains) {
+        g.gain.setTargetAtTime(0.95, this.ctx.currentTime, 0.05)
+      }
+    }
+  }
+
+  isSongMode(): boolean {
+    return this.songMode
+  }
+
   /** Set the current pattern for sequencer playback. null = scene-matrix only. */
   setPattern(pattern: Pattern | null): void {
     this.currentPattern = pattern
@@ -664,6 +687,18 @@ export class AudioEngine {
     if (this.currentPattern && this.transport.playing && this.transport.bar !== this.lastScheduledBar) {
       const currentBar = this.transport.bar
       this.lastScheduledBar = currentBar
+
+      // ── Song mode: apply the section arc (mute/unmute tracks per section) ──
+      if (this.songMode && this.ctx) {
+        const { activeTracks, sectionIndex } = sectionAtBar(currentBar)
+        if (sectionIndex !== this.lastSectionIndex) {
+          this.lastSectionIndex = sectionIndex
+          for (let i = 0; i < this.trackGains.length; i++) {
+            const target = activeTracks.has(i) ? 0.95 : 0.001
+            this.trackGains[i].gain.setTargetAtTime(target, this.ctx.currentTime, 0.08)
+          }
+        }
+      }
 
       // ── Filter automation: the commercial build-up/drop movement ──
       // Every 8-bar phrase the LEAD filter sweeps open over the first 4 bars
