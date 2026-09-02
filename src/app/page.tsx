@@ -1376,6 +1376,8 @@ function PerformancePanel() {
   const setChorus = usePsyBoss((s) => s.setChorus)
   const setPhaser = usePsyBoss((s) => s.setPhaser)
   const setExciter = usePsyBoss((s) => s.setExciter)
+  const trackMorphs = usePsyBoss((s) => s.trackMorphs)
+  const setTrackMorph = usePsyBoss((s) => s.setTrackMorph)
 
   const playableTracks = [
     { idx: 2, name: 'LEAD' },
@@ -1496,6 +1498,17 @@ function PerformancePanel() {
                 className="w-14 accent-fuchsia-400 cursor-pointer h-1"
                 aria-label={`${name} LFO depth`}
                 title="LFO depth"
+              />
+              <span className="text-[8px] font-mono text-muted-foreground ml-1 whitespace-nowrap">MRPH</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round((trackMorphs[t] ?? 0) * 100)}
+                onChange={(e) => setTrackMorph(t, Number(e.target.value) / 100)}
+                className="w-14 accent-orange-400 cursor-pointer h-1"
+                aria-label={`${name} morph`}
+                title="Morph (crossfade scene 0 -> 1)"
               />
             </div>
           ))}
