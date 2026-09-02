@@ -58,6 +58,7 @@ export interface PsyBossState {
   ready: boolean
   initError: string | null
   bpm: number
+  masterFilterHz: number
   beat: number
   bar: number
   phase: number
@@ -72,6 +73,7 @@ export interface PsyBossState {
   init: () => Promise<void>
   togglePlay: () => void
   setBpm: (bpm: number) => void
+  setMasterFilter: (hz: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -129,6 +131,7 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   ready: false,
   initError: null,
   bpm: 144,
+  masterFilterHz: 19000,
   beat: 0,
   bar: 0,
   phase: 0,
