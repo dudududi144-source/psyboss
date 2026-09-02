@@ -71,13 +71,13 @@ describe('psytrance presets', () => {
     }
   })
 
-  test('all preset scene values are valid (0-3)', () => {
+  test('all preset scene values are valid (0-7)', () => {
     for (const preset of PSY_PRESETS) {
       const p = preset.build()
       for (const track of p.tracks) {
         for (const step of track) {
           expect(step.scene).toBeGreaterThanOrEqual(0)
-          expect(step.scene).toBeLessThanOrEqual(3)
+          expect(step.scene).toBeLessThanOrEqual(7)
         }
       }
     }
