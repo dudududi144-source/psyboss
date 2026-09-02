@@ -193,14 +193,21 @@ async function renderTrackRaw(args: {
   sidechainGain.connect(masterGain)
   const trackGains: GainNode[] = []
   const trackFilters: BiquadFilterNode[] = []
+  // Per-track high-pass cutoffs (mirror of live engine) — low end = kick+bass only.
+  const HPF_HZ = [30, 40, 150, 200, 300, 120, 120, 100, 150, 200]
   for (let t = 0; t < pattern.tracks.length; t++) {
     const g = ctx.createGain()
     g.gain.value = 0.95
+    const hpf = ctx.createBiquadFilter()
+    hpf.type = 'highpass'
+    hpf.frequency.value = HPF_HZ[t] ?? 100
+    hpf.Q.value = 0.707
     const filt = ctx.createBiquadFilter()
     filt.type = 'lowpass'
     filt.frequency.value = 18000
     filt.Q.value = 0.7
-    g.connect(filt)
+    g.connect(hpf)
+    hpf.connect(filt)
     if (t === 0) {
       filt.connect(masterGain) // kick bypasses the sidechain
     } else {
