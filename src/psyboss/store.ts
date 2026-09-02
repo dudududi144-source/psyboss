@@ -62,6 +62,9 @@ export interface PsyBossState {
   masterFilterHz: number
   songMode: boolean
   currentSection: string
+  keyboardTrack: number
+  trackMutes: boolean[]
+  trackVolumes: number[]
   beat: number
   bar: number
   phase: number
@@ -78,6 +81,10 @@ export interface PsyBossState {
   setBpm: (bpm: number) => void
   setMasterFilter: (hz: number) => void
   toggleSongMode: () => void
+  setKeyboardTrack: (t: number) => void
+  toggleTrackMute: (t: number) => void
+  setTrackVolume: (t: number, v: number) => void
+  playNote: (t: number, semitones: number, velocity?: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -138,6 +145,9 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   masterFilterHz: 19000,
   songMode: false,
   currentSection: 'INTRO',
+  keyboardTrack: 2,
+  trackMutes: Array(10).fill(false),
+  trackVolumes: Array(10).fill(0.95),
   beat: 0,
   bar: 0,
   phase: 0,
@@ -200,6 +210,28 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     const next = !get().songMode
     if (engine) engine.setSongMode(next)
     set({ songMode: next, currentSection: next ? sectionAtBar(get().bar).section.name : 'INTRO' })
+  },
+
+  setKeyboardTrack: (t: number) => {
+    set({ keyboardTrack: t })
+  },
+
+  toggleTrackMute: (t: number) => {
+    const mutes = [...get().trackMutes]
+    mutes[t] = !mutes[t]
+    if (engine) engine.setTrackMute(t, mutes[t])
+    set({ trackMutes: mutes })
+  },
+
+  setTrackVolume: (t: number, v: number) => {
+    const vols = [...get().trackVolumes]
+    vols[t] = v
+    if (engine) engine.setTrackVolume(t, v)
+    set({ trackVolumes: vols })
+  },
+
+  playNote: (t: number, semitones: number, velocity?: number) => {
+    if (engine) engine.playNote(t, semitones, velocity ?? 0.8)
   },
 
   trig: (track: number, scene: number) => {
