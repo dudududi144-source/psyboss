@@ -71,6 +71,12 @@ export class AudioEngine {
   private masterFilter: BiquadFilterNode | null = null
   private trackLFOOscs: OscillatorNode[] = []
   private trackLFODepthGains: GainNode[] = []
+  private chorusSend: GainNode | null = null
+  private chorusLFO: OscillatorNode | null = null
+  private phaserSend: GainNode | null = null
+  private phaserLFO: OscillatorNode | null = null
+  private phaserFilters: BiquadFilterNode[] = []
+  private exciterSend: GainNode | null = null
   private songMode = false
   private lastSectionIndex = -1
 
@@ -243,6 +249,7 @@ export class AudioEngine {
 
     this.masterGain.connect(this.masterFilter) // dry
     this.buildStereoWidener(ctx) // masterFilter -> mid/side widener -> limiter
+    this.buildExtraFx(ctx) // chorus + phaser + exciter (off by default)
     this.limiter.connect(this.clockNode)
     this.clockNode.connect(ctx.destination)
 
@@ -670,6 +677,99 @@ export class AudioEngine {
     outL.connect(merger, 0, 0)
     outR.connect(merger, 0, 1)
     merger.connect(this.limiter!)
+  }
+
+  /**
+   * EXTRA FX — chorus, phaser, exciter (all off by default, user-controlled).
+   * These add the polish/movement that separates a demo from a produced track.
+   * All route into masterFilter so they pass through the widener + limiter.
+   */
+  private buildExtraFx(ctx: AudioContext): void {
+    // ── Chorus: delayed copy with LFO-modulated delay time (thickens the sound) ──
+    this.chorusSend = ctx.createGain()
+    this.chorusSend.gain.value = 0
+    const chorusDelay = ctx.createDelay(0.1)
+    chorusDelay.delayTime.value = 0.02
+    this.chorusLFO = ctx.createOscillator()
+    this.chorusLFO.frequency.value = 0.5
+    const chorusLFODepth = ctx.createGain()
+    chorusLFODepth.gain.value = 0.004
+    this.chorusLFO.connect(chorusLFODepth)
+    chorusLFODepth.connect(chorusDelay.delayTime)
+    this.chorusLFO.start()
+    this.masterGain!.connect(this.chorusSend)
+    this.chorusSend.connect(chorusDelay)
+    chorusDelay.connect(this.masterFilter!)
+
+    // ── Phaser: 4 cascaded allpass filters swept by an LFO ──
+    this.phaserSend = ctx.createGain()
+    this.phaserSend.gain.value = 0
+    let phaserNode: AudioNode = this.phaserSend
+    this.phaserFilters = []
+    for (let i = 0; i < 4; i++) {
+      const ap = ctx.createBiquadFilter()
+      ap.type = 'allpass'
+      ap.frequency.value = 400 + i * 400
+      ap.Q.value = 1
+      phaserNode.connect(ap)
+      phaserNode = ap
+      this.phaserFilters.push(ap)
+    }
+    this.phaserLFO = ctx.createOscillator()
+    this.phaserLFO.frequency.value = 0.3
+    const phaserLFODepth = ctx.createGain()
+    phaserLFODepth.gain.value = 300
+    this.phaserLFO.connect(phaserLFODepth)
+    for (const ap of this.phaserFilters) {
+      phaserLFODepth.connect(ap.frequency)
+    }
+    this.phaserLFO.start()
+    this.masterGain!.connect(this.phaserSend)
+    phaserNode.connect(this.masterFilter!)
+
+    // ── Exciter: high-passed harmonics with tanh drive (adds air/shine) ──
+    this.exciterSend = ctx.createGain()
+    this.exciterSend.gain.value = 0
+    const exciterHPF = ctx.createBiquadFilter()
+    exciterHPF.type = 'highpass'
+    exciterHPF.frequency.value = 3000
+    const exciterShaper = ctx.createWaveShaper()
+    exciterShaper.curve = this.makeDriveCurve()
+    this.masterGain!.connect(this.exciterSend)
+    this.exciterSend.connect(exciterHPF)
+    exciterHPF.connect(exciterShaper)
+    exciterShaper.connect(this.masterFilter!)
+  }
+
+  /** Symmetric tanh drive curve for the exciter. */
+  private makeDriveCurve(): Float32Array {
+    const n = 1024
+    const curve = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1
+      curve[i] = Math.tanh(x * 3)
+    }
+    return curve
+  }
+
+  /** Set chorus send amount (0-1) + LFO rate. */
+  setChorus(amount: number, rate: number = 0.5): void {
+    if (!this.ctx || !this.chorusSend) return
+    this.chorusSend.gain.setTargetAtTime(Math.max(0, Math.min(1, amount)), this.ctx.currentTime, 0.02)
+    if (this.chorusLFO) this.chorusLFO.frequency.setTargetAtTime(rate, this.ctx.currentTime, 0.02)
+  }
+
+  /** Set phaser send amount (0-1) + LFO rate. */
+  setPhaser(amount: number, rate: number = 0.3): void {
+    if (!this.ctx || !this.phaserSend) return
+    this.phaserSend.gain.setTargetAtTime(Math.max(0, Math.min(1, amount)), this.ctx.currentTime, 0.02)
+    if (this.phaserLFO) this.phaserLFO.frequency.setTargetAtTime(rate, this.ctx.currentTime, 0.02)
+  }
+
+  /** Set exciter send amount (0-1). Adds high-frequency harmonics/shine. */
+  setExciter(amount: number): void {
+    if (!this.ctx || !this.exciterSend) return
+    this.exciterSend.gain.setTargetAtTime(Math.max(0, Math.min(1, amount)), this.ctx.currentTime, 0.02)
   }
 
   /**
