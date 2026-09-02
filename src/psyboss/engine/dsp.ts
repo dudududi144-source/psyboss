@@ -624,6 +624,96 @@ export function renderRollBass(sampleRate: number, variant: number, seed: number
 }
 
 
+/**
+ * PSY STAB — a punchy chord stab (root+fifth+octave) through a fast ladder-filter
+ * envelope. Classic psytrance accent for drops and transitions.
+ */
+export function renderStab(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.4
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 220 // A3
+  const intervals = [1, 1.5, 1.335, 2][variant] ?? 1
+  const baseFreq = root * intervals
+  const chordRatios = [1, 1.5, 2] // root, fifth, octave
+
+  const nVoicesPerNote = 3
+  const detuneCents = 18
+  const res = 2.2
+  const fStart = 3000
+  const fEnd = 400
+  const fDecaySec = 0.15
+
+  const allPhases: Float32Array[] = []
+  const allIncs: Float32Array[] = []
+  for (let c = 0; c < chordRatios.length; c++) {
+    const s = makeSupersawIncs(baseFreq * chordRatios[c], nVoicesPerNote, detuneCents, sampleRate)
+    allPhases.push(s.phases)
+    allIncs.push(s.incs)
+  }
+
+  const filt = new LadderFilter(sampleRate, fStart, res)
+  const dc = new DcBlocker(sampleRate)
+
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    let sum = 0
+    for (let c = 0; c < chordRatios.length; c++) {
+      sum += supersawSample(allPhases[c], allIncs[c], nVoicesPerNote)
+    }
+    sum /= chordRatios.length
+    const fEnv = Math.exp(-t / fDecaySec)
+    filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
+    const filtered = filt.process(sum)
+    const amp = adsr(t, 0.003, 0.08, 0.3, 0.2, dur)
+    const driven = Math.tanh(filtered * 2.0)
+    const sample = dc.process(driven * amp * 1.6)
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.95)
+  }
+  return { left, right, sampleRate }
+}
+
+/**
+ * PSY PLUCK — a fast, resonant plucked note. Very short envelope with a quickly
+ * closing ladder filter — the bright, percussive melodic accent of psytrance.
+ */
+export function renderPluck(sampleRate: number, variant: number, seed: number): StereoBuffer {
+  const dur = 0.3
+  const n = Math.floor(dur * sampleRate)
+  const left = new Float32Array(n)
+  const right = new Float32Array(n)
+
+  const root = 440 // A4
+  const intervals = [1, 1.25, 1.5, 2][variant] ?? 1
+  const freq = root * intervals
+
+  const res = 1.8
+  const fStart = 4000
+  const fEnd = 300
+  const fDecaySec = 0.08
+
+  const s = makeSupersawIncs(freq, 3, 12, sampleRate)
+  const filt = new LadderFilter(sampleRate, fStart, res)
+  const dc = new DcBlocker(sampleRate)
+
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const raw = supersawSample(s.phases, s.incs, 3)
+    const fEnv = Math.exp(-t / fDecaySec)
+    filt.setCutoff(fEnd + (fStart - fEnd) * fEnv, sampleRate)
+    const filtered = filt.process(raw)
+    const amp = Math.exp(-t / 0.07)
+    const driven = Math.tanh(filtered * 2.2)
+    const sample = dc.process(driven * amp * 1.5)
+    left[i] = clamp(sample)
+    right[i] = clamp(sample * 0.9)
+  }
+  return { left, right, sampleRate }
+}
+
 const RENDERERS = [
   renderKick,
   renderRollBass,
@@ -633,9 +723,11 @@ const RENDERERS = [
   renderClap,
   renderPad,
   renderFx,
+  renderStab,
+  renderPluck,
 ]
 
-export const TRACK_NAMES = ['KICK', 'BASS', 'LEAD', 'ARP', 'HAT', 'CLAP', 'PAD', 'FX'] as const
+export const TRACK_NAMES = ['KICK', 'BASS', 'LEAD', 'ARP', 'HAT', 'CLAP', 'PAD', 'FX', 'STAB', 'PLUCK'] as const
 export const SCENE_COUNT = 4
 
 /**
