@@ -65,6 +65,8 @@ export interface PsyBossState {
   keyboardTrack: number
   trackMutes: boolean[]
   trackVolumes: number[]
+  trackLFORates: number[]
+  trackLFODepths: number[]
   beat: number
   bar: number
   phase: number
@@ -85,6 +87,7 @@ export interface PsyBossState {
   toggleTrackMute: (t: number) => void
   setTrackVolume: (t: number, v: number) => void
   playNote: (t: number, semitones: number, velocity?: number) => void
+  setTrackLFO: (t: number, rate: number, depthPct: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -148,6 +151,8 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   keyboardTrack: 2,
   trackMutes: Array(10).fill(false),
   trackVolumes: Array(10).fill(0.95),
+  trackLFORates: Array(10).fill(1),
+  trackLFODepths: Array(10).fill(0),
   beat: 0,
   bar: 0,
   phase: 0,
@@ -232,6 +237,15 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
 
   playNote: (t: number, semitones: number, velocity?: number) => {
     if (engine) engine.playNote(t, semitones, velocity ?? 0.8)
+  },
+
+  setTrackLFO: (t: number, rate: number, depthPct: number) => {
+    const rates = [...get().trackLFORates]
+    const depths = [...get().trackLFODepths]
+    rates[t] = rate
+    depths[t] = depthPct
+    if (engine) engine.setTrackLFO(t, rate, depthPct)
+    set({ trackLFORates: rates, trackLFODepths: depths })
   },
 
   trig: (track: number, scene: number) => {
