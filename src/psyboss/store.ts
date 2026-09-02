@@ -120,7 +120,7 @@ export interface PatternStore {
 }
 
 const SEED = 0x9e3779b9
-const NUM_TRACKS = 8
+const NUM_TRACKS = 10
 
 let engine: AudioEngine | null = null
 let wired = false
