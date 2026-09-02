@@ -1369,6 +1369,9 @@ export default function Home() {
   const setBpm = usePsyBoss((s) => s.setBpm)
   const masterFilterHz = usePsyBoss((s) => s.masterFilterHz)
   const setMasterFilter = usePsyBoss((s) => s.setMasterFilter)
+  const songMode = usePsyBoss((s) => s.songMode)
+  const currentSection = usePsyBoss((s) => s.currentSection)
+  const toggleSongMode = usePsyBoss((s) => s.toggleSongMode)
   const trig = usePsyBoss((s) => s.trig)
 
   const [booted, setBooted] = useState(false)
@@ -1524,6 +1527,26 @@ export default function Home() {
             <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-12 text-right whitespace-nowrap">
               {masterFilterHz >= 1000 ? `${(masterFilterHz / 1000).toFixed(1)}k` : `${Math.round(masterFilterHz)}`}
             </span>
+          </div>
+
+          {/* Song mode — auto intro/build/drop/breakdown arrangement */}
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              onClick={toggleSongMode}
+              className={`px-2 py-1 rounded-md font-mono text-[10px] uppercase tracking-wide transition-colors border ${
+                songMode
+                  ? 'bg-emerald-500 text-black border-emerald-400'
+                  : 'bg-transparent text-muted-foreground border-border/40 hover:border-emerald-500/40'
+              }`}
+              aria-pressed={songMode}
+            >
+              Song {songMode ? 'On' : 'Off'}
+            </button>
+            {songMode && (
+              <span className="px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 font-mono text-[10px] uppercase tracking-wide text-emerald-400 whitespace-nowrap">
+                {currentSection}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
