@@ -467,6 +467,57 @@ export class AudioEngine {
     return this.songMode
   }
 
+  /**
+   * PERFORMANCE: play a pitched note on a track live (playable keyboard).
+   * Plays the track's root buffer (scene 0) at a pitch-shifted playbackRate,
+   * so any chromatic note is reachable from the one rendered buffer. semitones
+   * is the offset from the track's root (0 = root, +12 = one octave up).
+   */
+  playNote(track: number, semitones: number, velocity: number = 0.8): void {
+    if (!this.ctx) return
+    const buf = this.soundBank.get(`${track}:0`)
+    if (!buf) return
+    const src = this.ctx.createBufferSource()
+    src.buffer = buf
+    src.playbackRate.value = Math.pow(2, semitones / 12)
+    const gain = this.ctx.createGain()
+    gain.gain.value = Math.max(0, Math.min(1, velocity))
+    src.connect(gain)
+    gain.connect(this.trackGains[track] ?? this.masterGain!)
+    if (this.activeVoices.size >= VOICE_CAP) {
+      const oldest = this.activeVoices.values().next().value
+      if (oldest) {
+        this.activeVoices.delete(oldest)
+        try { oldest.stop() } catch { /* already stopped */ }
+        try { oldest.disconnect() } catch { /* already disconnected */ }
+      }
+    }
+    this.activeVoices.add(src)
+    src.onended = () => {
+      this.activeVoices.delete(src)
+      try { src.disconnect() } catch { /* already disconnected */ }
+    }
+    src.start()
+    // A played kick should also pump the mix.
+    if (track === 0 && this.ctx) {
+      this.triggerSidechainDuck(this.ctx.currentTime)
+    }
+  }
+
+  /** PERFORMANCE: per-track volume (live mixing fader). */
+  setTrackVolume(track: number, volume: number): void {
+    if (!this.ctx || !this.trackGains[track]) return
+    const v = Math.max(0, Math.min(1, volume))
+    this.trackGains[track].gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
+  }
+
+  /** PERFORMANCE: per-track mute/solo (live mixing). */
+  setTrackMute(track: number, muted: boolean): void {
+    if (!this.ctx || !this.trackGains[track]) return
+    const target = muted ? 0.0001 : 0.95
+    this.trackGains[track].gain.setTargetAtTime(target, this.ctx.currentTime, 0.02)
+  }
+
   /** Set the current pattern for sequencer playback. null = scene-matrix only. */
   setPattern(pattern: Pattern | null): void {
     this.currentPattern = pattern
