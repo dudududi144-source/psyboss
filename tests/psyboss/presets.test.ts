@@ -12,10 +12,10 @@ import { PSY_PRESETS, T } from '@/psyboss/engine/presets'
 import { STEPS_PER_BAR } from '@/psyboss/engine/sequencer'
 
 describe('psytrance presets', () => {
-  test('all presets build 8-track, 16-step patterns', () => {
+  test('all presets build 10-track, 16-step patterns', () => {
     for (const preset of PSY_PRESETS) {
       const p = preset.build()
-      expect(p.tracks.length).toBe(8)
+      expect(p.tracks.length).toBe(10)
       for (const track of p.tracks) {
         expect(track.length).toBe(STEPS_PER_BAR)
       }
