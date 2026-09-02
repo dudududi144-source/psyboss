@@ -1353,6 +1353,128 @@ function DevicesPanel() {
 }
 
 
+// ── PERFORMANCE PANEL — playable keyboard + live mixer ─────────────────────
+const KEY_TO_SEMITONE: Record<string, number> = {
+  a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12,
+}
+const SEMITONE_LABELS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C']
+
+function PerformancePanel() {
+  const keyboardTrack = usePsyBoss((s) => s.keyboardTrack)
+  const setKeyboardTrack = usePsyBoss((s) => s.setKeyboardTrack)
+  const playNote = usePsyBoss((s) => s.playNote)
+  const trackMutes = usePsyBoss((s) => s.trackMutes)
+  const toggleTrackMute = usePsyBoss((s) => s.toggleTrackMute)
+  const trackVolumes = usePsyBoss((s) => s.trackVolumes)
+  const setTrackVolume = usePsyBoss((s) => s.setTrackVolume)
+
+  const playableTracks = [
+    { idx: 2, name: 'LEAD' },
+    { idx: 1, name: 'BASS' },
+    { idx: 9, name: 'PLUCK' },
+    { idx: 3, name: 'ARP' },
+    { idx: 8, name: 'STAB' },
+    { idx: 6, name: 'PAD' },
+  ]
+
+  // Computer keyboard -> playNote.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.repeat) return
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return
+      const st = KEY_TO_SEMITONE[e.key.toLowerCase()]
+      if (st !== undefined) {
+        playNote(keyboardTrack, st, 0.8)
+      }
+    }
+    window.addEventListener('keydown', down)
+    return () => window.removeEventListener('keydown', down)
+  }, [keyboardTrack, playNote])
+
+  return (
+    <Card className="border-border/60 bg-card/40 p-4">
+      <div className="mb-3">
+        <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-muted-foreground">Performance</h3>
+        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+          Play notes live with your computer keyboard (A W S E D F T G Y H U J K) and mix the tracks in real time.
+        </p>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Keyboard plays</div>
+        <div className="flex gap-1.5 flex-wrap">
+          {playableTracks.map((t) => (
+            <button
+              key={t.idx}
+              onClick={() => setKeyboardTrack(t.idx)}
+              className={`px-2.5 py-1 rounded-md font-mono text-[10px] transition-colors border ${
+                keyboardTrack === t.idx
+                  ? 'bg-emerald-500 text-black border-emerald-400'
+                  : 'bg-transparent text-muted-foreground border-border/40 hover:border-emerald-500/40'
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+        {SEMITONE_LABELS.map((label, i) => {
+          const isBlack = label.includes('#')
+          const key = Object.keys(KEY_TO_SEMITONE).find((k) => KEY_TO_SEMITONE[k] === i)
+          return (
+            <button
+              key={i}
+              onMouseDown={() => playNote(keyboardTrack, i, 0.8)}
+              className={`flex-shrink-0 flex flex-col items-center justify-end pb-1 rounded-md border font-mono text-[9px] transition-all active:scale-95 ${
+                isBlack
+                  ? 'w-8 h-16 bg-foreground/80 text-background border-foreground/60'
+                  : 'w-10 h-20 bg-background/80 text-foreground border-border/60 hover:bg-emerald-500/20'
+              }`}
+            >
+              <span className="text-[8px] opacity-50 uppercase">{key}</span>
+              <span>{label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div>
+        <div className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Mixer — mute / volume</div>
+        <div className="space-y-1.5">
+          {TRACKS.map((name, t) => (
+            <div key={t} className="flex items-center gap-2">
+              <button
+                onClick={() => toggleTrackMute(t)}
+                className={`w-8 h-6 rounded font-mono text-[9px] transition-colors border ${
+                  trackMutes[t]
+                    ? 'bg-red-500/80 text-white border-red-400'
+                    : 'bg-transparent text-muted-foreground border-border/40 hover:border-emerald-500/40'
+                }`}
+                aria-label={`Mute ${name}`}
+              >
+                M
+              </button>
+              <span className="w-14 font-mono text-[10px] text-muted-foreground">{name}</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round((trackVolumes[t] ?? 0.95) * 100)}
+                onChange={(e) => setTrackVolume(t, Number(e.target.value) / 100)}
+                className="flex-1 accent-emerald-500 cursor-pointer h-1"
+                aria-label={`${name} volume`}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 export default function Home() {
   // Selectors: each field pulled individually so a change to one doesn't re-render
   // components that only depend on another. (ROAST-2 #4 fix: was destructuring the
@@ -1686,7 +1808,7 @@ export default function Home() {
 
             {/* ── SEQUENCER + RENDER + SAMPLES + PROJECTS ── */}
             <Tabs defaultValue="sequencer" className="w-full">
-              <TabsList className="grid w-full grid-cols-6 bg-card/40">
+              <TabsList className="grid w-full grid-cols-7 bg-card/40">
                 <TabsTrigger value="sequencer" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Music2 className="w-3.5 h-3.5 mr-1.5" />
                   Sequencer
@@ -1706,6 +1828,10 @@ export default function Home() {
                 <TabsTrigger value="devices" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Cable className="w-3.5 h-3.5 mr-1.5" />
                   Devices
+                </TabsTrigger>
+                <TabsTrigger value="perform" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
+                  <Keyboard className="w-3.5 h-3.5 mr-1.5" />
+                  Perform
                 </TabsTrigger>
                 <TabsTrigger value="arrange" className="font-mono text-xs data-[state=active]:bg-emerald-500/20">
                   <Layers className="w-3.5 h-3.5 mr-1.5" />
@@ -1727,6 +1853,9 @@ export default function Home() {
               </TabsContent>
               <TabsContent value="devices" className="mt-3">
                 <DevicesPanel />
+              </TabsContent>
+              <TabsContent value="perform" className="mt-3">
+                <PerformancePanel />
               </TabsContent>
               <TabsContent value="arrange" className="mt-3">
                 <ArrangementPanel />
