@@ -175,6 +175,48 @@ export class PsyBossAnthemAdapter extends DeviceAdapter {
     })
   }
 
+  // ---- Phase 13: real-time generative evolution --------------------
+
+  /**
+   * Enable real-time generative evolution on the hosted anthem engine.
+   * The config shape is psy-anthem's RealtimeGenerationConfig (unknown here:
+   * psyboss never imports psy-anthem).
+   */
+  enableRealtimeGeneration(config: unknown): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'realtime.enable', config },
+    })
+  }
+
+  /** Disable real-time evolution. */
+  disableRealtimeGeneration(): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'realtime.disable' },
+    })
+  }
+
+  /** Force an immediate evolution regardless of the regeneration interval. */
+  forceEvolution(): void {
+    this.anthem.handleEnvelope({
+      rev: this.nextRev(),
+      seed: this.seed,
+      src: this.id,
+      dst: this.anthem.deviceId,
+      ts: Date.now(),
+      payload: { kind: 'realtime.evolve', force: true },
+    })
+  }
+
   // ---- DeviceAdapter abstract implementation: forward to the engine ----
 
   protected onTransport(
