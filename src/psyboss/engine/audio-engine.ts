@@ -518,6 +518,60 @@ export class AudioEngine {
   }
 
   /**
+   * Mid/side STEREO WIDENER (frequency-dependent, mastering-grade).
+   * Splits the mix into mid (L+R) and side (L-R), high-passes the side so the
+   * BASS STAYS MONO (essential for club playback), then boosts the side to widen
+   * the highs/mids. This is the stereo polish that makes a mix sound professional.
+   */
+  private buildStereoWidener(ctx: AudioContext): void {
+    const WIDTH = 1.3 // side boost factor (>1 = wider)
+    const SIDE_HPF_HZ = 200 // below this, keep mono (bass/kick centered)
+
+    const splitter = ctx.createChannelSplitter(2)
+    const merger = ctx.createChannelMerger(2)
+
+    const midL = ctx.createGain(); midL.gain.value = 0.5
+    const midR = ctx.createGain(); midR.gain.value = 0.5
+    const sideL = ctx.createGain(); sideL.gain.value = 0.5
+    const sideR = ctx.createGain(); sideR.gain.value = -0.5
+
+    this.masterFilter!.connect(splitter)
+    splitter.connect(midL, 0)
+    splitter.connect(midR, 1)
+    splitter.connect(sideL, 0)
+    splitter.connect(sideR, 1)
+
+    const midSum = ctx.createGain()
+    midL.connect(midSum)
+    midR.connect(midSum)
+
+    const sideSum = ctx.createGain()
+    sideL.connect(sideSum)
+    sideR.connect(sideSum)
+
+    const sideHPF = ctx.createBiquadFilter()
+    sideHPF.type = 'highpass'
+    sideHPF.frequency.value = SIDE_HPF_HZ
+    const widthGain = ctx.createGain()
+    widthGain.gain.value = WIDTH
+    sideSum.connect(sideHPF)
+    sideHPF.connect(widthGain)
+
+    const outL = ctx.createGain()
+    const outR = ctx.createGain()
+    const sideInvert = ctx.createGain(); sideInvert.gain.value = -1
+    midSum.connect(outL)
+    widthGain.connect(outL)
+    midSum.connect(outR)
+    widthGain.connect(sideInvert)
+    sideInvert.connect(outR)
+
+    outL.connect(merger, 0, 0)
+    outR.connect(merger, 0, 1)
+    merger.connect(this.limiter!)
+  }
+
+  /**
    * Generate a deterministic stereo reverb impulse response (decaying noise). */
   private createReverbIR(ctx: AudioContext, duration: number): AudioBuffer {
     const rate = ctx.sampleRate
