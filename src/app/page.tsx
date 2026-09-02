@@ -1367,6 +1367,9 @@ function PerformancePanel() {
   const toggleTrackMute = usePsyBoss((s) => s.toggleTrackMute)
   const trackVolumes = usePsyBoss((s) => s.trackVolumes)
   const setTrackVolume = usePsyBoss((s) => s.setTrackVolume)
+  const trackLFORates = usePsyBoss((s) => s.trackLFORates)
+  const trackLFODepths = usePsyBoss((s) => s.trackLFODepths)
+  const setTrackLFO = usePsyBoss((s) => s.setTrackLFO)
 
   const playableTracks = [
     { idx: 2, name: 'LEAD' },
@@ -1442,7 +1445,7 @@ function PerformancePanel() {
       </div>
 
       <div>
-        <div className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Mixer — mute / volume</div>
+        <div className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Mixer — mute / volume / LFO (rate + depth)</div>
         <div className="space-y-1.5">
           {TRACKS.map((name, t) => (
             <div key={t} className="flex items-center gap-2">
@@ -1466,6 +1469,27 @@ function PerformancePanel() {
                 onChange={(e) => setTrackVolume(t, Number(e.target.value) / 100)}
                 className="flex-1 accent-emerald-500 cursor-pointer h-1"
                 aria-label={`${name} volume`}
+              />
+              <span className="text-[8px] font-mono text-muted-foreground ml-1 whitespace-nowrap">LFO</span>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                value={Math.round((trackLFORates[t] ?? 1) * 10)}
+                onChange={(e) => setTrackLFO(t, Number(e.target.value) / 10, trackLFODepths[t] ?? 0)}
+                className="w-14 accent-cyan-400 cursor-pointer h-1"
+                aria-label={`${name} LFO rate`}
+                title="LFO rate (Hz)"
+              />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(trackLFODepths[t] ?? 0)}
+                onChange={(e) => setTrackLFO(t, trackLFORates[t] ?? 1, Number(e.target.value))}
+                className="w-14 accent-fuchsia-400 cursor-pointer h-1"
+                aria-label={`${name} LFO depth`}
+                title="LFO depth"
               />
             </div>
           ))}
