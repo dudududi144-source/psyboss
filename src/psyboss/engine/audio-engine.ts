@@ -227,7 +227,7 @@ export class AudioEngine {
     this.buildFxBus(ctx)
 
     this.masterGain.connect(this.masterFilter) // dry
-    this.masterFilter.connect(this.limiter)
+    this.buildStereoWidener(ctx) // masterFilter -> mid/side widener -> limiter
     this.limiter.connect(this.clockNode)
     this.clockNode.connect(ctx.destination)
 
