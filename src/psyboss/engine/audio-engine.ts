@@ -67,6 +67,7 @@ export class AudioEngine {
   private sidechainGain: GainNode | null = null
   private trackFilters: BiquadFilterNode[] = []
   private filterAutoEnabled = true
+  private masterFilter: BiquadFilterNode | null = null
 
   private trackGains: GainNode[] = []
   private soundBank: Map<string, AudioBuffer> = new Map()
@@ -204,9 +205,18 @@ export class AudioEngine {
     // masterGain feeds the dry path AND two sends: a stereo tempo delay and a
     // convolver reverb. Both returns sum into the limiter so the whole mix is
     // glued + limited together — this is what makes it sound produced, not dry.
+    // ── Master performance filter (real-time DJ-style sweep) ──
+    // Everything (dry + delay + reverb) passes through this lowpass, so the
+    // player can sweep the ENTIRE mix in real time. Open by default (19kHz).
+    this.masterFilter = ctx.createBiquadFilter()
+    this.masterFilter.type = 'lowpass'
+    this.masterFilter.frequency.value = 19000
+    this.masterFilter.Q.value = 0.5
+
     this.buildFxBus(ctx)
 
-    this.masterGain.connect(this.limiter) // dry
+    this.masterGain.connect(this.masterFilter) // dry
+    this.masterFilter.connect(this.limiter)
     this.limiter.connect(this.clockNode)
     this.clockNode.connect(ctx.destination)
 
@@ -413,6 +423,16 @@ export class AudioEngine {
     this.emitTransport()
   }
 
+  /**
+   * Real-time master performance filter — sweeps the ENTIRE mix (dry + FX).
+   * 19000 = fully open. Smoothed via setTargetAtTime for musical sweeps.
+   */
+  setMasterFilter(hz: number): void {
+    if (!this.ctx || !this.masterFilter) return
+    const clamped = Math.max(60, Math.min(19000, hz))
+    this.masterFilter.frequency.setTargetAtTime(clamped, this.ctx.currentTime, 0.02)
+  }
+
   /** Set the current pattern for sequencer playback. null = scene-matrix only. */
   setPattern(pattern: Pattern | null): void {
     this.currentPattern = pattern
@@ -461,7 +481,7 @@ export class AudioEngine {
     const delayMerge = ctx.createChannelMerger(2)
     delayL.connect(delayMerge, 0, 0)
     delayR.connect(delayMerge, 0, 1)
-    delayMerge.connect(this.limiter!)
+    delayMerge.connect(this.masterFilter!)
 
     // ── Convolver reverb (deterministic generated IR) ──
     this.reverbSend = ctx.createGain()
@@ -470,7 +490,7 @@ export class AudioEngine {
     convolver.buffer = this.createReverbIR(ctx, 2.4)
     this.masterGain!.connect(this.reverbSend)
     this.reverbSend.connect(convolver)
-    convolver.connect(this.limiter!)
+    convolver.connect(this.masterFilter!)
   }
 
   /**
