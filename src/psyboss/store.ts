@@ -67,6 +67,9 @@ export interface PsyBossState {
   trackVolumes: number[]
   trackLFORates: number[]
   trackLFODepths: number[]
+  chorusAmount: number
+  phaserAmount: number
+  exciterAmount: number
   beat: number
   bar: number
   phase: number
@@ -88,6 +91,9 @@ export interface PsyBossState {
   setTrackVolume: (t: number, v: number) => void
   playNote: (t: number, semitones: number, velocity?: number) => void
   setTrackLFO: (t: number, rate: number, depthPct: number) => void
+  setChorus: (amount: number) => void
+  setPhaser: (amount: number) => void
+  setExciter: (amount: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -153,6 +159,9 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   trackVolumes: Array(10).fill(0.95),
   trackLFORates: Array(10).fill(1),
   trackLFODepths: Array(10).fill(0),
+  chorusAmount: 0,
+  phaserAmount: 0,
+  exciterAmount: 0,
   beat: 0,
   bar: 0,
   phase: 0,
@@ -246,6 +255,21 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
     depths[t] = depthPct
     if (engine) engine.setTrackLFO(t, rate, depthPct)
     set({ trackLFORates: rates, trackLFODepths: depths })
+  },
+
+  setChorus: (amount: number) => {
+    if (engine) engine.setChorus(amount)
+    set({ chorusAmount: amount })
+  },
+
+  setPhaser: (amount: number) => {
+    if (engine) engine.setPhaser(amount)
+    set({ phaserAmount: amount })
+  },
+
+  setExciter: (amount: number) => {
+    if (engine) engine.setExciter(amount)
+    set({ exciterAmount: amount })
   },
 
   trig: (track: number, scene: number) => {
