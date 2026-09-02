@@ -141,6 +141,35 @@ export class SampleLibrary {
  * Validate that a SampleMetadata has all required fields before adding.
  * Returns an array of error messages (empty = valid).
  */
+/**
+ * SAMPLE SLICING (Octatrack-style): cut a sample into N equal slices.
+ * Returns an array of AudioBuffers, one per slice. Enables playing individual
+ * slices for fills, breaks, and stutter effects — the signature Octatrack move.
+ */
+export function sliceBuffer(ctx: BaseAudioContext, buffer: AudioBuffer, numSlices: number): AudioBuffer[] {
+  const slices: AudioBuffer[] = []
+  const n = Math.max(1, Math.floor(numSlices))
+  const totalFrames = buffer.length
+  const framesPerSlice = Math.floor(totalFrames / n)
+  const numChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  for (let i = 0; i < n; i++) {
+    const startFrame = i * framesPerSlice
+    const endFrame = i === n - 1 ? totalFrames : (i + 1) * framesPerSlice
+    const sliceFrames = Math.max(1, endFrame - startFrame)
+    const sliceBuffer = ctx.createBuffer(numChannels, sliceFrames, sampleRate)
+    for (let ch = 0; ch < numChannels; ch++) {
+      const srcData = buffer.getChannelData(ch)
+      const sliceData = sliceBuffer.getChannelData(ch)
+      for (let f = 0; f < sliceFrames; f++) {
+        sliceData[f] = srcData[startFrame + f] ?? 0
+      }
+    }
+    slices.push(sliceBuffer)
+  }
+  return slices
+}
+
 export function validateMetadata(meta: Partial<SampleMetadata>): string[] {
   const errors: string[] = []
   if (!meta.name || meta.name.trim() === '') errors.push('name is required')
