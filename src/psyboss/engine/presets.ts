@@ -26,9 +26,11 @@ export const T = {
   CLAP: 5,
   PAD: 6,
   FX: 7,
+  STAB: 8,
+  PLUCK: 9,
 } as const
 
-const NUM_TRACKS = 8
+const NUM_TRACKS = 10
 
 export interface PsyPreset {
   id: string
@@ -94,6 +96,10 @@ function buildFullOn(): Pattern {
   set(p, T.ARP, 13, 1)
   set(p, T.ARP, 14, 2)
   set(p, T.ARP, 15, 3)
+  // Pluck: a syncopated melodic hook over the roll.
+  set(p, T.PLUCK, 3, 0)
+  set(p, T.PLUCK, 7, 1)
+  set(p, T.PLUCK, 11, 2)
   return p
 }
 
@@ -148,6 +154,9 @@ function buildDark(): Pattern {
   set(p, T.ARP, 11, 0)
   // FX riser at the end of the bar.
   set(p, T.FX, 14, 0)
+  // Stab: dark chord accents on the offbeats.
+  set(p, T.STAB, 2, 0)
+  set(p, T.STAB, 10, 1)
   return p
 }
 
