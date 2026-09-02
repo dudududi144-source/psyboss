@@ -70,6 +70,7 @@ export interface PsyBossState {
   chorusAmount: number
   phaserAmount: number
   exciterAmount: number
+  trackMorphs: number[]
   beat: number
   bar: number
   phase: number
@@ -94,6 +95,7 @@ export interface PsyBossState {
   setChorus: (amount: number) => void
   setPhaser: (amount: number) => void
   setExciter: (amount: number) => void
+  setTrackMorph: (t: number, v: number) => void
   trig: (track: number, scene: number) => void
   setPatternEnabled: (on: boolean) => void
   masteringPreset: 'off' | 'club' | 'streaming'
@@ -162,6 +164,7 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   chorusAmount: 0,
   phaserAmount: 0,
   exciterAmount: 0,
+  trackMorphs: Array(10).fill(0),
   beat: 0,
   bar: 0,
   phase: 0,
@@ -245,7 +248,13 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   },
 
   playNote: (t: number, semitones: number, velocity?: number) => {
-    if (engine) engine.playNote(t, semitones, velocity ?? 0.8)
+    if (!engine) return
+    const morph = get().trackMorphs[t] ?? 0
+    if (morph > 0.001) {
+      engine.playMorph(t, semitones, morph, velocity ?? 0.8)
+    } else {
+      engine.playNote(t, semitones, velocity ?? 0.8)
+    }
   },
 
   setTrackLFO: (t: number, rate: number, depthPct: number) => {
@@ -270,6 +279,12 @@ export const usePsyBoss = create<PsyBossState>((set, get) => ({
   setExciter: (amount: number) => {
     if (engine) engine.setExciter(amount)
     set({ exciterAmount: amount })
+  },
+
+  setTrackMorph: (t: number, v: number) => {
+    const morphs = [...get().trackMorphs]
+    morphs[t] = Math.max(0, Math.min(1, v))
+    set({ trackMorphs: morphs })
   },
 
   trig: (track: number, scene: number) => {
