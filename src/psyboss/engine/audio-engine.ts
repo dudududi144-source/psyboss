@@ -742,9 +742,9 @@ export class AudioEngine {
   }
 
   /** Symmetric tanh drive curve for the exciter. */
-  private makeDriveCurve(): Float32Array {
+  private makeDriveCurve(): Float32Array<ArrayBuffer> {
     const n = 1024
-    const curve = new Float32Array(n)
+    const curve = new Float32Array(new ArrayBuffer(n * 4))
     for (let i = 0; i < n; i++) {
       const x = (i / (n - 1)) * 2 - 1
       curve[i] = Math.tanh(x * 3)
