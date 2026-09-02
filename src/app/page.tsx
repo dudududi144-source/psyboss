@@ -1641,7 +1641,7 @@ export default function Home() {
 
               <div className="rounded-xl border border-border/60 bg-card/40 p-3 md:p-4 overflow-x-auto">
                 <div className="min-w-[420px]">
-                  <div className="grid grid-cols-[56px_repeat(4,1fr)] md:grid-cols-[64px_repeat(4,1fr)] gap-2 mb-2">
+                  <div className="grid grid-cols-[56px_repeat(8,1fr)] md:grid-cols-[64px_repeat(8,1fr)] gap-2 mb-2">
                     <div />
                     {Array.from({ length: SCENES }, (_, i) => (
                       <div
@@ -1655,7 +1655,7 @@ export default function Home() {
                   {TRACKS.map((name, track) => (
                     <div
                       key={track}
-                      className={`grid grid-cols-[56px_repeat(4,1fr)] md:grid-cols-[64px_repeat(4,1fr)] gap-2 mb-2 last:mb-0 ${currentTrack === track ? 'ring-1 ring-emerald-500/30 rounded-md p-1 -m-1' : ''}`}
+                      className={`grid grid-cols-[56px_repeat(8,1fr)] md:grid-cols-[64px_repeat(8,1fr)] gap-2 mb-2 last:mb-0 ${currentTrack === track ? 'ring-1 ring-emerald-500/30 rounded-md p-1 -m-1' : ''}`}
                     >
                       <button
                         onClick={() => setCurrentTrack(track)}
