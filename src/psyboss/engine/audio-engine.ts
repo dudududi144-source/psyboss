@@ -183,15 +183,26 @@ export class AudioEngine {
     this.sidechainGain.gain.value = 1.0
     this.sidechainGain.connect(this.masterGain)
 
+    // Per-track HIGH-PASS cutoffs (mixing cleanup): the low end belongs to the
+    // kick + bass only. Everything else is HPF'd so the mix has no mud and the
+    // low end stays tight and punchy — a core commercial-mixing technique.
+    const HPF_HZ = [30, 40, 150, 200, 300, 120, 120, 100, 150, 200]
+
     for (let i = 0; i < TRACK_NAMES.length; i++) {
       const g = ctx.createGain()
       g.gain.value = 0.95
+      // Per-track high-pass (mud removal).
+      const hpf = ctx.createBiquadFilter()
+      hpf.type = 'highpass'
+      hpf.frequency.value = HPF_HZ[i] ?? 100
+      hpf.Q.value = 0.707
       // Per-track lowpass for build-up/drop filter automation (commercial movement).
       const filt = ctx.createBiquadFilter()
       filt.type = 'lowpass'
       filt.frequency.value = 18000 // open by default
       filt.Q.value = 0.7
-      g.connect(filt)
+      g.connect(hpf)
+      hpf.connect(filt)
       if (i === 0) {
         filt.connect(this.masterGain) // kick bypasses the sidechain
       } else {
